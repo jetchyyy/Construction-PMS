@@ -1,0 +1,94 @@
+/* Modern AdminLTE Layout — Responsive overrides only */
+/* All critical layout styles are inline in JSX to avoid Bootstrap conflicts */
+
+/* Responsive sidebar */
+@media (max-width: 991px) {
+  .odc-sidebar {
+    transform: translateX(-100%) !important;
+  }
+  .odc-sidebar.open {
+    transform: translateX(0) !important;
+  }
+  .odc-topbar {
+    left: 0 !important;
+  }
+  .mobile-toggle {
+    display: flex !important;
+  }
+}
+
+/* Sidebar link hover effect (can't do hover with inline styles) */
+.odc-sidebar a:hover {
+  background: rgba(255,255,255,0.08) !important;
+  color: #fff !important;
+}
+
+/* Login Page */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.login-page::before {
+  content: '';
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.15);
+  top: -100px;
+  right: -100px;
+}
+.login-page::after {
+  content: '';
+  position: absolute;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.1);
+  bottom: -80px;
+  left: -80px;
+}
+.login-card {
+  width: 420px;
+  max-width: 100%;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  box-shadow: 0 25px 50px rgba(0,0,0,0.2);
+  padding: 40px;
+  position: relative;
+  z-index: 1;
+  animation: slideInUp 0.5s ease;
+}
+.login-card h1 {
+  font-size: 1.5rem !important;
+  text-align: center;
+  margin-bottom: 4px !important;
+  color: #1e293b !important;
+}
+.login-card .login-subtitle {
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+  margin-bottom: 28px;
+}
+.login-error {
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 576px) {
+  .login-card {
+    padding: 28px 24px;
+  }
+}

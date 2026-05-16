@@ -7,7 +7,9 @@ import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
 import { SkeletonTable } from '../../components/ui/SkeletonLoader';
 import { format, subDays, eachDayOfInterval, parseISO } from 'date-fns';
-import { FiPlus, FiEye, FiCheck, FiDollarSign, FiFileText, FiClock, FiUsers } from 'react-icons/fi';
+import { FiPlus, FiEye, FiCheck, FiDollarSign, FiFileText, FiClock, FiUsers, FiPrinter } from 'react-icons/fi';
+import PayrollReceipt from '../../components/tenant/PayrollReceipt';
+
 
 const PayrollManager = () => {
   const { companyId } = useAuth();
@@ -31,6 +33,12 @@ const PayrollManager = () => {
   const [showDetail, setShowDetail] = useState(null);
   const [detailLines, setDetailLines] = useState([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [receiptConfig, setReceiptConfig] = useState(null);
+  const [companyName, setCompanyName] = useState('');
+
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [selectedForReceipt, setSelectedForReceipt] = useState(null);
+
 
   const fetchData = async () => {
     if (!companyId) return;
@@ -46,11 +54,23 @@ const PayrollManager = () => {
         const db2 = b.createdAt?.toDate?.() || new Date(0);
         return db2 - da;
       }));
+      const compSnap = await getDoc(doc(db, 'companies', companyId));
+      if (compSnap.exists()) {
+        const data = compSnap.data();
+        setCompanyName(data.name || '');
+        setReceiptConfig({
+          header: data.settings?.receiptHeader || '',
+          subheader: data.settings?.receiptSubheader || '',
+          footer: data.settings?.receiptFooter || '',
+        });
+      }
+
     } catch (err) {
       addToast('Failed to load data', 'error');
     } finally {
       setLoading(false);
     }
+
   };
 
   useEffect(() => { fetchData(); }, [companyId]);
@@ -388,7 +408,8 @@ const PayrollManager = () => {
             </div>
             <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: 12 }}>
               <table className="data-table" style={{ fontSize: 12 }}>
-                <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}><tr><th>Employee</th><th>Attendance</th><th>OT</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th></tr></thead>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}><tr><th>Employee</th><th>Attendance</th><th>OT</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th className="no-print">Actions</th></tr></thead>
+
                 <tbody>
                   {detailLines.length === 0 ? (
                     <tr><td colSpan="6" style={{ textAlign: 'center', padding: 32 }}>No details available</td></tr>
@@ -405,7 +426,20 @@ const PayrollManager = () => {
                       <td>{fmt(l.grossPay)}</td>
                       <td style={{ color: 'var(--danger)', fontWeight: 500 }}>{l.caDeduction > 0 ? `-${fmt(l.caDeduction)}` : '—'}</td>
                       <td style={{ fontWeight: 700, color: showDetail?.status === 'paid' ? 'var(--success)' : 'var(--text-heading)', fontSize: 14 }}>{fmt(l.netPay)}</td>
+                      <td className="no-print">
+                        <button 
+                          className="btn btn-sm btn-ghost" 
+                          style={{ color: 'var(--primary)' }}
+                          onClick={() => {
+                            setSelectedForReceipt({ ...l, companyName });
+                            setShowReceiptModal(true);
+                          }}
+                        >
+                          <FiPrinter /> Receipt
+                        </button>
+                      </td>
                     </tr>
+
                   ))}
                 </tbody>
               </table>
@@ -413,7 +447,25 @@ const PayrollManager = () => {
           </div>
         )}
       </Modal>
+
+      <Modal 
+        show={showReceiptModal} 
+        onClose={() => setShowReceiptModal(false)} 
+        title="Payroll Receipt Preview"
+        size="lg"
+      >
+        {selectedForReceipt && (
+          <PayrollReceipt 
+            config={receiptConfig}
+            payroll={showDetail}
+            employee={selectedForReceipt}
+            onClose={() => setShowReceiptModal(false)}
+          />
+
+        )}
+      </Modal>
     </div>
+
   );
 };
 

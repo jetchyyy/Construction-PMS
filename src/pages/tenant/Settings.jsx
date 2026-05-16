@@ -3,7 +3,10 @@ import { db } from '../../firebase/config';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../components/ui/ToastContext';
-import { FiSettings, FiSave, FiBriefcase, FiDollarSign, FiClock, FiCheckCircle } from 'react-icons/fi';
+import { FiSettings, FiSave, FiBriefcase, FiDollarSign, FiClock, FiCheckCircle, FiFileText } from 'react-icons/fi';
+import PayrollReceipt from '../../components/tenant/PayrollReceipt';
+
+
 
 const Settings = () => {
   const { companyId } = useAuth();
@@ -18,7 +21,12 @@ const Settings = () => {
     restDayOtMultiplier: '1.30',
     currency: 'PHP',
     workHoursPerDay: '8',
+    receiptHeader: '',
+    receiptSubheader: '',
+    receiptFooter: '',
   });
+
+
 
   useEffect(() => {
     if (!companyId) return;
@@ -35,7 +43,12 @@ const Settings = () => {
             restDayOtMultiplier: String(data.settings?.restDayOtMultiplier || 1.30),
             currency: data.settings?.currency || 'PHP',
             workHoursPerDay: String(data.settings?.workHoursPerDay || 8),
+            receiptHeader: data.settings?.receiptHeader || '',
+            receiptSubheader: data.settings?.receiptSubheader || '',
+            receiptFooter: data.settings?.receiptFooter || '',
           });
+
+
         }
       } catch (err) {
         addToast('Failed to load settings', 'error');
@@ -58,7 +71,12 @@ const Settings = () => {
           restDayOtMultiplier: parseFloat(form.restDayOtMultiplier),
           currency: form.currency,
           workHoursPerDay: parseInt(form.workHoursPerDay),
+          receiptHeader: form.receiptHeader,
+          receiptSubheader: form.receiptSubheader,
+          receiptFooter: form.receiptFooter,
         },
+
+
         updatedAt: serverTimestamp(),
       });
       addToast('Settings saved successfully', 'success');
@@ -97,7 +115,8 @@ const Settings = () => {
         </div>
       </div>
 
-      <div style={{ maxWidth: 800 }}>
+      <div style={{ maxWidth: 1000 }}>
+
         <form onSubmit={handleSave}>
           {/* Company Profile Section */}
           <div className="data-card animate-in" style={{ marginBottom: 24, animationDelay: '0s' }}>
@@ -175,7 +194,86 @@ const Settings = () => {
             </div>
           </div>
 
+          {/* Visual Receipt Designer Section */}
+          <div className="data-card animate-in" style={{ marginBottom: 32, animationDelay: '0.15s' }}>
+            <div className="data-card-header" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                <FiFileText />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Receipt Designer</h3>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--text)' }}>Visually customize your payroll documents</p>
+              </div>
+            </div>
+            
+            <div style={{ padding: 24 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 32 }}>
+                <div className="designer-fields">
+                  <div className="form-group">
+                    <label>Header Title</label>
+                    <input 
+                      className="form-input" 
+                      value={form.receiptHeader} 
+                      onChange={e => setForm({...form, receiptHeader: e.target.value})}
+                      placeholder={form.name || "Company Name"}
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--text)', display: 'block', marginTop: 4 }}>Main title at the top of the receipt.</span>
+                  </div>
+                  
+                  <div className="form-group" style={{ marginTop: 20 }}>
+                    <label>Document Sub-header</label>
+                    <input 
+                      className="form-input" 
+                      value={form.receiptSubheader} 
+                      onChange={e => setForm({...form, receiptSubheader: e.target.value})}
+                      placeholder="Payroll Receipt"
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--text)', display: 'block', marginTop: 4 }}>Secondary title (e.g., Payslip, Salary Voucher).</span>
+                  </div>
+
+                  <div className="form-group" style={{ marginTop: 20 }}>
+                    <label>Footer Note</label>
+                    <textarea 
+                      className="form-input" 
+                      style={{ minHeight: 80 }}
+                      value={form.receiptFooter} 
+                      onChange={e => setForm({...form, receiptFooter: e.target.value})}
+                      placeholder="This is a computer-generated document..."
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--text)', display: 'block', marginTop: 4 }}>Custom text displayed at the bottom.</span>
+                  </div>
+                </div>
+
+                <div className="designer-preview">
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Live Preview</div>
+                  <div style={{ 
+                    border: '1px solid var(--border-light)', 
+                    borderRadius: 12, 
+                    background: '#f8fafc', 
+                    padding: 20, 
+                    height: '450px', 
+                    overflow: 'hidden',
+                    position: 'relative'
+                  }}>
+                    <div style={{ transform: 'scale(0.6)', transformOrigin: 'top center' }}>
+                      <PayrollReceipt 
+                        isPreview={true}
+                        config={{
+                          header: form.receiptHeader,
+                          subheader: form.receiptSubheader,
+                          footer: form.receiptFooter
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
           <div className="animate-in" style={{ display: 'flex', alignItems: 'center', gap: 16, animationDelay: '0.2s' }}>
+
             <button className="btn btn-primary btn-lg" type="submit" disabled={saving} style={{ padding: '12px 32px' }}>
               {saving ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Saving...</> : <><FiSave /> Save Configuration</>}
             </button>

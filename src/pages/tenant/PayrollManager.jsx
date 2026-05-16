@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebase/config';
 import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,7 +7,7 @@ import Modal from '../../components/ui/Modal';
 import EmptyState from '../../components/ui/EmptyState';
 import { SkeletonTable } from '../../components/ui/SkeletonLoader';
 import { format, subDays, eachDayOfInterval, parseISO } from 'date-fns';
-import { FiPlus, FiEye, FiCheck, FiDollarSign, FiFileText, FiClock, FiUsers, FiPrinter } from 'react-icons/fi';
+import { FiPlus, FiEye, FiCheck, FiDollarSign, FiFileText, FiClock, FiUsers, FiPrinter, FiFilter, FiXCircle } from 'react-icons/fi';
 import PayrollReceipt from '../../components/tenant/PayrollReceipt';
 
 
@@ -17,6 +17,11 @@ const PayrollManager = () => {
   const [payrolls, setPayrolls] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Filter state
+  const [filterProjectId, setFilterProjectId] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
 
   // Wizard state
   const [showWizard, setShowWizard] = useState(false);
@@ -238,9 +243,25 @@ const PayrollManager = () => {
   const fmt = (n) => '₱' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2 });
   const getInitials = (name) => (name || 'U').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
-  // Summary stats
-  const totalPaid = payrolls.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.totalNet, 0);
-  const totalDraft = payrolls.filter(p => p.status === 'draft').reduce((acc, p) => acc + p.totalNet, 0);
+  // Filtering logic
+  const filteredPayrolls = useMemo(() => {
+    return payrolls.filter(pr => {
+      const matchProject = !filterProjectId || pr.projectId === filterProjectId;
+      const matchStart = !filterStartDate || pr.periodStart >= filterStartDate;
+      const matchEnd = !filterEndDate || pr.periodEnd <= filterEndDate;
+      return matchProject && matchStart && matchEnd;
+    });
+  }, [payrolls, filterProjectId, filterStartDate, filterEndDate]);
+
+  // Summary stats (based on filtered results)
+  const totalPaid = filteredPayrolls.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.totalNet, 0);
+  const totalDraft = filteredPayrolls.filter(p => p.status === 'draft').reduce((acc, p) => acc + p.totalNet, 0);
+
+  const clearFilters = () => {
+    setFilterProjectId('');
+    setFilterStartDate('');
+    setFilterEndDate('');
+  };
 
   return (
     <div className="animate-in">
@@ -258,17 +279,56 @@ const PayrollManager = () => {
         <div className="kpi-card gradient-kpi kpi-indigo card-shine">
           <div className="kpi-icon"><FiFileText /></div>
           <div className="kpi-value">{payrolls.length}</div>
-          <div className="kpi-label">Total Payrolls Generated</div>
+          <div className="kpi-label">Filtered Payrolls</div>
         </div>
         <div className="kpi-card gradient-kpi kpi-emerald card-shine">
           <div className="kpi-icon"><FiDollarSign /></div>
           <div className="kpi-value">{fmt(totalPaid)}</div>
-          <div className="kpi-label">Total Amount Disbursed</div>
+          <div className="kpi-label">Filtered Amount Disbursed</div>
         </div>
         <div className="kpi-card gradient-kpi kpi-amber card-shine">
           <div className="kpi-icon"><FiClock /></div>
           <div className="kpi-value">{fmt(totalDraft)}</div>
-          <div className="kpi-label">Pending Draft Amount</div>
+          <div className="kpi-label">Filtered Pending Draft</div>
+        </div>
+      </div>
+
+      <div className="filter-bar animate-in">
+        <div className="filter-item">
+          <label><FiFilter style={{ marginRight: 4 }} /> Filter by Project</label>
+          <select 
+            className="form-select" 
+            value={filterProjectId} 
+            onChange={e => setFilterProjectId(e.target.value)}
+          >
+            <option value="">All Projects</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.projectName}</option>)}
+          </select>
+        </div>
+        <div className="filter-item">
+          <label>Start Date</label>
+          <input 
+            type="date" 
+            className="form-input" 
+            value={filterStartDate} 
+            onChange={e => setFilterStartDate(e.target.value)} 
+          />
+        </div>
+        <div className="filter-item">
+          <label>End Date</label>
+          <input 
+            type="date" 
+            className="form-input" 
+            value={filterEndDate} 
+            onChange={e => setFilterEndDate(e.target.value)} 
+          />
+        </div>
+        <div className="filter-actions">
+          {(filterProjectId || filterStartDate || filterEndDate) && (
+            <button className="btn btn-secondary" onClick={clearFilters}>
+              <FiXCircle /> Clear
+            </button>
+          )}
         </div>
       </div>
 
@@ -277,9 +337,9 @@ const PayrollManager = () => {
         <table className="data-table">
           <thead><tr><th>Project</th><th>Type</th><th>Period</th><th>Employees</th><th>Total Net</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
-            {loading ? <SkeletonTable cols={7} rows={4} /> : payrolls.length === 0 ? (
-              <tr><td colSpan="7"><EmptyState icon={<FiDollarSign />} title="No payrolls" description="Generate your first payroll from attendance data." /></td></tr>
-            ) : payrolls.map((pr, i) => (
+            {loading ? <SkeletonTable cols={7} rows={4} /> : filteredPayrolls.length === 0 ? (
+              <tr><td colSpan="7"><EmptyState icon={<FiDollarSign />} title="No payrolls found" description="Adjust your filters or generate a new payroll." /></td></tr>
+            ) : filteredPayrolls.map((pr, i) => (
               <tr key={pr.id} className="animate-in" style={{ animationDelay: `${i * 0.05}s` }}>
                 <td style={{ fontWeight: 500 }}>{getProjectName(pr.projectId)}</td>
                 <td>

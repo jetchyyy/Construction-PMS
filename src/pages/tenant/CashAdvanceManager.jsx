@@ -17,8 +17,12 @@ const CashAdvanceManager = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ employeeId: '', amount: '', reason: '' });
+  const [form, setForm] = useState({ employeeId: '', amount: '', reason: '', deductionPerPayroll: '' });
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const fetchData = async () => {
     if (!companyId) return;
@@ -50,6 +54,7 @@ const CashAdvanceManager = () => {
     setSaving(true);
     try {
       const amount = Number(form.amount);
+      const deductionPerPayroll = Number(form.deductionPerPayroll) || 0;
       const empName = getEmpName(form.employeeId);
       await addDoc(collection(db, 'cashAdvances'), {
         companyId,
@@ -57,6 +62,7 @@ const CashAdvanceManager = () => {
         employeeName: empName,
         amount,
         remainingBalance: amount,
+        deductionPerPayroll,
         reason: form.reason,
         status: 'active',
         date: format(new Date(), 'yyyy-MM-dd'),
@@ -64,7 +70,7 @@ const CashAdvanceManager = () => {
       });
       addToast(`Cash advance of ₱${amount.toLocaleString()} created for ${empName}`, 'success');
       setShowModal(false);
-      setForm({ employeeId: '', amount: '', reason: '' });
+      setForm({ employeeId: '', amount: '', reason: '', deductionPerPayroll: '' });
       fetchData();
     } catch (err) {
       addToast('Error: ' + err.message, 'error');
@@ -92,6 +98,12 @@ const CashAdvanceManager = () => {
   const activeAdvances = advances.filter(a => a.status === 'active');
   const totalOutstanding = activeAdvances.reduce((acc, a) => acc + (a.remainingBalance || 0), 0);
   const fullyDeductedCount = advances.length - activeAdvances.length;
+
+  const totalPages = Math.ceil(advances.length / itemsPerPage);
+  const paginatedAdvances = React.useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return advances.slice(start, start + itemsPerPage);
+  }, [advances, currentPage]);
 
   return (
     <div className="animate-in">
@@ -130,12 +142,12 @@ const CashAdvanceManager = () => {
         <table className="data-table">
           <thead><tr><th>Employee</th><th>Date / Reason</th><th>Original Amount</th><th>Deduction Progress</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
-            {loading ? <SkeletonTable cols={6} rows={4} /> : advances.length === 0 ? (
+            {loading ? <SkeletonTable cols={6} rows={4} /> : paginatedAdvances.length === 0 ? (
               <tr><td colSpan="6"><EmptyState icon={<FiCreditCard />} title="No cash advances" description="Create a new cash advance for an employee." /></td></tr>
-            ) : advances.map((ca, i) => {
+            ) : paginatedAdvances.map((ca, i) => {
               const progressPercentage = Math.max(0, Math.min(100, ((ca.amount - ca.remainingBalance) / ca.amount) * 100));
               return (
-                <tr key={ca.id} className="animate-in" style={{ animationDelay: `${i * 0.05}s` }}>
+                <tr key={ca.id} className="animate-in" style={{ animationDelay: `${(i % itemsPerPage) * 0.05}s` }}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div className={`avatar ${['indigo', 'emerald', 'rose', 'amber', 'cyan'][i % 5]}`}>{getInitials(ca.employeeName)}</div>
@@ -146,7 +158,14 @@ const CashAdvanceManager = () => {
                     <div style={{ fontSize: 12, fontWeight: 500 }}>{ca.date}</div>
                     <div style={{ fontSize: 11, color: 'var(--text)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ca.reason}>{ca.reason || 'No reason provided'}</div>
                   </td>
-                  <td style={{ fontWeight: 500 }}>{fmt(ca.amount)}</td>
+                  <td style={{ fontWeight: 500 }}>
+                    <div>{fmt(ca.amount)}</div>
+                    {ca.deductionPerPayroll > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--text)', fontWeight: 400, marginTop: 2 }}>
+                        {fmt(ca.deductionPerPayroll)} / payroll
+                      </div>
+                    )}
+                  </td>
                   <td style={{ width: 220 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
                       <span style={{ color: 'var(--text)' }}>Bal: <strong style={{ color: ca.remainingBalance > 0 ? 'var(--danger)' : 'var(--success)' }}>{fmt(ca.remainingBalance)}</strong></span>
@@ -170,6 +189,52 @@ const CashAdvanceManager = () => {
             })}
           </tbody>
         </table>
+        {totalPages > 1 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '16px 24px', borderTop: '1px solid var(--border-light)',
+            flexWrap: 'wrap', gap: 12
+          }}>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              Showing <strong style={{ color: 'var(--text-heading)' }}>{((currentPage - 1) * itemsPerPage) + 1}</strong> to <strong style={{ color: 'var(--text-heading)' }}>{Math.min(currentPage * itemsPerPage, advances.length)}</strong> of <strong style={{ color: 'var(--text-heading)' }}>{advances.length}</strong> records
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </button>
+              {Array.from({ length: totalPages }).map((_, idx) => {
+                const pageNum = idx + 1;
+                if (totalPages > 5 && pageNum !== 1 && pageNum !== totalPages && Math.abs(pageNum - currentPage) > 1) {
+                  if (pageNum === 2 || pageNum === totalPages - 1) {
+                    return <span key={pageNum} style={{ padding: '4px 8px', color: 'var(--text-light)', display: 'inline-block' }}>...</span>;
+                  }
+                  return null;
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    className={`btn btn-sm ${currentPage === pageNum ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setCurrentPage(pageNum)}
+                    style={{ minWidth: 32 }}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <Modal show={showModal} onClose={() => setShowModal(false)} title="New Cash Advance" footer={
@@ -190,6 +255,11 @@ const CashAdvanceManager = () => {
             <label>Amount (₱)</label>
             <input type="number" className="form-input" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} required min="1" placeholder="0.00" />
             <span style={{ fontSize: 11, color: 'var(--text)', display: 'block', marginTop: 4 }}>This amount will be deducted from future payrolls.</span>
+          </div>
+          <div className="form-group">
+            <label>Deduction per Payroll (Optional)</label>
+            <input type="number" className="form-input" value={form.deductionPerPayroll} onChange={e => setForm({...form, deductionPerPayroll: e.target.value})} min="0" step="any" placeholder="e.g. 500.00" />
+            <span style={{ fontSize: 11, color: 'var(--text)', display: 'block', marginTop: 4 }}>Specify a fixed deduction amount per payroll cycle. If empty, the full amount will be deducted in the next payroll.</span>
           </div>
           <div className="form-group">
             <label>Reason / Remarks</label>

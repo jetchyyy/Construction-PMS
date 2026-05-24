@@ -18,8 +18,16 @@ const EmployeeManager = () => {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ fullName: '', role: 'worker', dailyRate: '', payrollType: 'weekly', currentProjectId: '' });
+  const [form, setForm] = useState({ fullName: '', role: 'worker', rateType: 'daily', dailyRate: '', hourlyRate: '', payrollType: 'weekly', currentProjectId: '' });
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
 
   const fetchData = async () => {
     if (!companyId) return;
@@ -42,13 +50,21 @@ const EmployeeManager = () => {
 
   const openAdd = () => {
     setEditing(null);
-    setForm({ fullName: '', role: 'worker', dailyRate: '', payrollType: 'weekly', currentProjectId: '' });
+    setForm({ fullName: '', role: 'worker', rateType: 'daily', dailyRate: '', hourlyRate: '', payrollType: 'weekly', currentProjectId: '' });
     setShowModal(true);
   };
 
   const openEdit = (emp) => {
     setEditing(emp);
-    setForm({ fullName: emp.fullName, role: emp.role, dailyRate: emp.dailyRate, payrollType: emp.payrollType, currentProjectId: emp.currentProjectId || '' });
+    setForm({
+      fullName: emp.fullName,
+      role: emp.role,
+      rateType: emp.rateType || 'daily',
+      dailyRate: emp.rateType === 'hourly' ? '' : emp.dailyRate || '',
+      hourlyRate: emp.rateType === 'hourly' ? emp.hourlyRate || '' : '',
+      payrollType: emp.payrollType,
+      currentProjectId: emp.currentProjectId || ''
+    });
     setShowModal(true);
   };
 
@@ -57,11 +73,17 @@ const EmployeeManager = () => {
     setSaving(true);
     try {
       const projName = projects.find(p => p.id === form.currentProjectId)?.projectName || '';
+      const isDaily = form.rateType === 'daily';
+      const dailyRateVal = isDaily ? Number(form.dailyRate) : Number(form.hourlyRate) * 8;
+      const hourlyRateVal = isDaily ? Number(form.dailyRate) / 8 : Number(form.hourlyRate);
+
       const data = {
         companyId,
         fullName: form.fullName,
         role: form.role,
-        dailyRate: Number(form.dailyRate),
+        rateType: form.rateType,
+        dailyRate: dailyRateVal,
+        hourlyRate: hourlyRateVal,
         payrollType: form.payrollType,
         currentProjectId: form.currentProjectId,
         currentProjectName: projName,
@@ -110,6 +132,12 @@ const EmployeeManager = () => {
   const filtered = employees.filter(e => e.fullName?.toLowerCase().includes(search.toLowerCase()));
   const getInitials = (name) => (name || 'U').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const paginatedEmployees = React.useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filtered.slice(start, start + itemsPerPage);
+  }, [filtered, currentPage]);
+
   return (
     <div className="animate-in">
       <div className="page-header">
@@ -131,12 +159,12 @@ const EmployeeManager = () => {
           </div>
         </div>
         <table className="data-table">
-          <thead><tr><th>Employee</th><th>Role</th><th>Daily Rate</th><th>Assignment</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Role</th><th>Rate</th><th>Assignment</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
-            {loading ? <SkeletonTable cols={6} rows={5} /> : filtered.length === 0 ? (
+            {loading ? <SkeletonTable cols={6} rows={5} /> : paginatedEmployees.length === 0 ? (
               <tr><td colSpan="6"><EmptyState icon={<FiUsers />} title="No employees" description={search ? 'No matches found.' : 'Add your first employee.'} /></td></tr>
-            ) : filtered.map((emp, i) => (
-              <tr key={emp.id} className="animate-in" style={{ animationDelay: `${i * 0.03}s` }}>
+            ) : paginatedEmployees.map((emp, i) => (
+              <tr key={emp.id} className="animate-in" style={{ animationDelay: `${(i % itemsPerPage) * 0.03}s` }}>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div className={`avatar ${['indigo', 'emerald', 'rose', 'amber', 'cyan'][i % 5]}`}>{getInitials(emp.fullName)}</div>
@@ -152,7 +180,13 @@ const EmployeeManager = () => {
                     <span style={{ textTransform: 'capitalize' }}>{emp.role}</span>
                   </span>
                 </td>
-                <td style={{ fontWeight: 500 }}>₱{Number(emp.dailyRate).toLocaleString()}</td>
+                 <td style={{ fontWeight: 500 }}>
+                  {emp.rateType === 'hourly' ? (
+                    <span>₱{Number(emp.hourlyRate || 0).toLocaleString()}<span style={{ fontSize: 11, color: 'var(--text-light)', fontWeight: 400 }}>/hr</span></span>
+                  ) : (
+                    <span>₱{Number(emp.dailyRate || 0).toLocaleString()}<span style={{ fontSize: 11, color: 'var(--text-light)', fontWeight: 400 }}>/day</span></span>
+                  )}
+                </td>
                 <td>{emp.currentProjectName ? <span style={{ background: 'var(--bg)', padding: '4px 10px', borderRadius: 6, fontSize: 12, border: '1px solid var(--border-light)' }}>{emp.currentProjectName}</span> : <span style={{ color: 'var(--text)', opacity: 0.5, fontSize: 12 }}>Unassigned</span>}</td>
                 <td>
                   <span className={`status-badge ${emp.status}`}>
@@ -168,6 +202,52 @@ const EmployeeManager = () => {
             ))}
           </tbody>
         </table>
+        {totalPages > 1 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '16px 24px', borderTop: '1px solid var(--border-light)',
+            flexWrap: 'wrap', gap: 12
+          }}>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              Showing <strong style={{ color: 'var(--text-heading)' }}>{((currentPage - 1) * itemsPerPage) + 1}</strong> to <strong style={{ color: 'var(--text-heading)' }}>{Math.min(currentPage * itemsPerPage, filtered.length)}</strong> of <strong style={{ color: 'var(--text-heading)' }}>{filtered.length}</strong> employees
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </button>
+              {Array.from({ length: totalPages }).map((_, idx) => {
+                const pageNum = idx + 1;
+                if (totalPages > 5 && pageNum !== 1 && pageNum !== totalPages && Math.abs(pageNum - currentPage) > 1) {
+                  if (pageNum === 2 || pageNum === totalPages - 1) {
+                    return <span key={pageNum} style={{ padding: '4px 8px', color: 'var(--text-light)', display: 'inline-block' }}>...</span>;
+                  }
+                  return null;
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    className={`btn btn-sm ${currentPage === pageNum ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setCurrentPage(pageNum)}
+                    style={{ minWidth: 32 }}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <Modal show={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Employee' : 'New Employee'} footer={
@@ -200,9 +280,25 @@ const EmployeeManager = () => {
               </select>
             </div>
           </div>
-          <div className="form-group">
-            <label>Daily Rate (₱)</label>
-            <input type="number" className="form-input" value={form.dailyRate} onChange={e => setForm({...form, dailyRate: e.target.value})} required min="1" placeholder="0.00" />
+          <div className="form-row">
+            <div className="form-group">
+              <label>Rate Type</label>
+              <select className="form-input" value={form.rateType} onChange={e => setForm({...form, rateType: e.target.value})}>
+                <option value="daily">Daily Rate</option>
+                <option value="hourly">Hourly Rate</option>
+              </select>
+            </div>
+            {form.rateType === 'hourly' ? (
+              <div className="form-group">
+                <label>Hourly Rate (₱)</label>
+                <input type="number" className="form-input" value={form.hourlyRate} onChange={e => setForm({...form, hourlyRate: e.target.value})} required min="1" placeholder="0.00" />
+              </div>
+            ) : (
+              <div className="form-group">
+                <label>Daily Rate (₱)</label>
+                <input type="number" className="form-input" value={form.dailyRate} onChange={e => setForm({...form, dailyRate: e.target.value})} required min="1" placeholder="0.00" />
+              </div>
+            )}
           </div>
           <div className="form-group">
             <label>Project Assignment</label>

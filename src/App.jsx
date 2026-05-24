@@ -22,6 +22,8 @@ import PayrollManager from './pages/tenant/PayrollManager';
 import CashAdvanceManager from './pages/tenant/CashAdvanceManager';
 import WorkerTransfer from './pages/tenant/WorkerTransfer';
 import Settings from './pages/tenant/Settings';
+import AttendanceTracker from './pages/tenant/AttendanceTracker';
+import Analytics from './pages/tenant/Analytics';
 
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './assets/scss/adminlte.scss';
@@ -88,9 +90,15 @@ function App() {
                   <Settings />
                 </ProtectedRoute>
               } />
+              <Route path="analytics" element={
+                <ProtectedRoute allowedRoles={['company_admin']}>
+                  <Analytics />
+                </ProtectedRoute>
+              } />
               
               {/* Staff and Admin can see attendance */}
               <Route path="attendance" element={<AttendanceEncoder />} />
+              <Route path="tracker" element={<AttendanceTracker />} />
               
               <Route index element={<Navigate to="dashboard" replace />} />
             </Route>

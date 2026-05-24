@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { FiX } from 'react-icons/fi';
 
 const Modal = ({ show, onClose, title, children, footer, size = 'md' }) => {
@@ -17,13 +18,13 @@ const Modal = ({ show, onClose, title, children, footer, size = 'md' }) => {
 
   const maxW = size === 'lg' ? 680 : size === 'xl' ? 860 : 520;
 
-  return (
+  return createPortal(
     <div
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
         backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', zIndex: 2000, padding: 20,
+        justifyContent: 'center', zIndex: 9999, padding: '40px 20px',
         animation: 'fadeIn 0.2s ease',
       }}
     >
@@ -31,9 +32,11 @@ const Modal = ({ show, onClose, title, children, footer, size = 'md' }) => {
         onClick={e => e.stopPropagation()}
         style={{
           background: '#fff', borderRadius: 16, width: '100%',
-          maxWidth: maxW, maxHeight: '85vh', display: 'flex',
+          maxWidth: maxW, display: 'flex',
           flexDirection: 'column', boxShadow: '0 25px 50px rgba(0,0,0,0.15)',
           animation: 'slideInUp 0.3s ease',
+          maxHeight: 'calc(100vh - 80px)',
+          overflow: 'hidden',
         }}
       >
         {/* Header */}
@@ -56,7 +59,7 @@ const Modal = ({ show, onClose, title, children, footer, size = 'md' }) => {
           </button>
         </div>
         {/* Body */}
-        <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+        <div style={{ padding: '24px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
           {children}
         </div>
         {/* Footer */}
@@ -69,7 +72,8 @@ const Modal = ({ show, onClose, title, children, footer, size = 'md' }) => {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

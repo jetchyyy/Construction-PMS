@@ -56,18 +56,36 @@ const AttendanceEncoder = () => {
       }
       setEmployees(allEmps);
       
+      const calculateHours = (inStr, outStr) => {
+        if (!inStr || !outStr) return 0;
+        const [inH, inM] = inStr.split(':').map(Number);
+        const [outH, outM] = outStr.split(':').map(Number);
+        let diff = (outH + outM / 60) - (inH + inM / 60);
+        if (diff < 0) diff += 24; // Handle overnight shift
+        if (diff >= 5) diff -= 1; // 1 hour lunch break
+        return Math.max(0, parseFloat(diff.toFixed(2)));
+      };
+
       const initData = {};
       for (const emp of allEmps) {
         try {
           const attDoc = await getDocs(collection(db, 'attendance', companyId, 'projects', projectId, 'dates', date, 'records'));
           const existing = attDoc.docs.find(d => d.id === emp.id);
           if (existing) {
-            initData[emp.id] = existing.data();
+            const data = existing.data();
+            initData[emp.id] = {
+              status: data.status || 'present',
+              timeIn: data.timeIn || (data.status === 'present' ? '08:00' : data.status === 'half-day' ? '08:00' : ''),
+              timeOut: data.timeOut || (data.status === 'present' ? '17:00' : data.status === 'half-day' ? '12:00' : ''),
+              hoursWorked: data.hoursWorked !== undefined ? data.hoursWorked : (data.status === 'present' ? 8 : data.status === 'half-day' ? 4 : 0),
+              overtimeHours: data.overtimeHours || 0,
+              remarks: data.remarks || ''
+            };
           } else {
-            initData[emp.id] = { status: 'present', overtimeHours: 0, remarks: '' };
+            initData[emp.id] = { status: 'present', timeIn: '08:00', timeOut: '17:00', hoursWorked: 8, overtimeHours: 0, remarks: '' };
           }
         } catch {
-          initData[emp.id] = { status: 'present', overtimeHours: 0, remarks: '' };
+          initData[emp.id] = { status: 'present', timeIn: '08:00', timeOut: '17:00', hoursWorked: 8, overtimeHours: 0, remarks: '' };
         }
       }
       setAttendanceData(initData);
@@ -80,7 +98,61 @@ const AttendanceEncoder = () => {
   };
 
   const handleStatusChange = (empId, status) => {
-    setAttendanceData(prev => ({ ...prev, [empId]: { ...prev[empId], status } }));
+    let timeIn = '';
+    let timeOut = '';
+    if (status === 'present') {
+      timeIn = '08:00';
+      timeOut = '17:00';
+    } else if (status === 'half-day') {
+      timeIn = '08:00';
+      timeOut = '12:00';
+    }
+    
+    const calcHoursLocal = (iStr, oStr) => {
+      if (!iStr || !oStr) return 0;
+      const [inH, inM] = iStr.split(':').map(Number);
+      const [outH, outM] = oStr.split(':').map(Number);
+      let diff = (outH + outM / 60) - (inH + inM / 60);
+      if (diff < 0) diff += 24;
+      if (diff >= 5) diff -= 1;
+      return Math.max(0, parseFloat(diff.toFixed(2)));
+    };
+    
+    const hoursWorked = calcHoursLocal(timeIn, timeOut);
+    setAttendanceData(prev => ({
+      ...prev,
+      [empId]: {
+        ...prev[empId],
+        status,
+        timeIn,
+        timeOut,
+        hoursWorked
+      }
+    }));
+  };
+
+  const handleTimeChange = (empId, field, value) => {
+    const calcHoursLocal = (iStr, oStr) => {
+      if (!iStr || !oStr) return 0;
+      const [inH, inM] = iStr.split(':').map(Number);
+      const [outH, outM] = oStr.split(':').map(Number);
+      let diff = (outH + outM / 60) - (inH + inM / 60);
+      if (diff < 0) diff += 24;
+      if (diff >= 5) diff -= 1;
+      return Math.max(0, parseFloat(diff.toFixed(2)));
+    };
+
+    setAttendanceData(prev => {
+      const record = { ...prev[empId], [field]: value };
+      const hoursWorked = calcHoursLocal(record.timeIn, record.timeOut);
+      return {
+        ...prev,
+        [empId]: {
+          ...record,
+          hoursWorked
+        }
+      };
+    });
   };
 
   const handleOTChange = (empId, ot) => {
@@ -100,6 +172,9 @@ const AttendanceEncoder = () => {
         const docRef = doc(db, 'attendance', companyId, 'projects', projectId, 'dates', date, 'records', emp.id);
         return setDoc(docRef, {
           status: att.status,
+          timeIn: att.timeIn || '',
+          timeOut: att.timeOut || '',
+          hoursWorked: att.hoursWorked || 0,
           overtimeHours: att.overtimeHours,
           remarks: att.remarks || '',
           encodedBy: currentUser?.uid || 'system',
@@ -201,10 +276,10 @@ const AttendanceEncoder = () => {
           {employees.length > 0 && <span className="status-badge active">{employees.length} workers loaded</span>}
         </div>
         <table className="data-table">
-          <thead><tr><th>Employee</th><th>Attendance Status</th><th>OT (Hrs)</th><th>Remarks</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Attendance Status</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>OT (Hrs)</th><th>Remarks</th></tr></thead>
           <tbody>
             {employees.length === 0 ? (
-              <tr><td colSpan="4" style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text)' }}>
+              <tr><td colSpan="7" style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text)' }}>
                 <div style={{ fontSize: 40, opacity: 0.2, marginBottom: 16 }}><FiClock /></div>
                 Select a project and click "Load Workers" to begin encoding attendance for {new Date(date).toLocaleDateString()}.
               </td></tr>
@@ -225,6 +300,32 @@ const AttendanceEncoder = () => {
                     <button className={getToggleClass(emp.id, 'half-day')} onClick={() => handleStatusChange(emp.id, 'half-day')}>½ Half-day</button>
                     <button className={getToggleClass(emp.id, 'absent')} onClick={() => handleStatusChange(emp.id, 'absent')}><FiX style={{ marginRight: 4 }}/>Absent</button>
                   </div>
+                </td>
+                <td>
+                  <input
+                    type="time"
+                    className="form-input"
+                    style={{ width: 100, padding: '8px 12px', background: attendanceData[emp.id]?.status === 'absent' ? 'var(--bg)' : '#fff' }}
+                    value={attendanceData[emp.id]?.timeIn || ''}
+                    onChange={e => handleTimeChange(emp.id, 'timeIn', e.target.value)}
+                    disabled={attendanceData[emp.id]?.status === 'absent'}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="time"
+                    className="form-input"
+                    style={{ width: 100, padding: '8px 12px', background: attendanceData[emp.id]?.status === 'absent' ? 'var(--bg)' : '#fff' }}
+                    value={attendanceData[emp.id]?.timeOut || ''}
+                    onChange={e => handleTimeChange(emp.id, 'timeOut', e.target.value)}
+                    disabled={attendanceData[emp.id]?.status === 'absent'}
+                  />
+                </td>
+                <td>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>
+                    {attendanceData[emp.id]?.hoursWorked || 0}{' '}
+                    <span style={{ fontSize: 10, color: 'var(--text-light)', fontWeight: 400 }}>hrs</span>
+                  </span>
                 </td>
                 <td>
                   <input

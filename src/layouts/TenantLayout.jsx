@@ -6,7 +6,7 @@ import { signOut } from 'firebase/auth';
 import {
   FiGrid, FiUsers, FiFolder, FiClock, FiDollarSign,
   FiCreditCard, FiRepeat, FiSettings, FiLogOut, FiMenu, FiX,
-  FiUserPlus, FiPlusCircle
+  FiUserPlus, FiPlusCircle, FiCalendar, FiTrendingUp
 } from 'react-icons/fi';
 
 const ADMIN_NAV = [
@@ -20,6 +20,8 @@ const ADMIN_NAV = [
   ]},
   { section: 'Operations', items: [
     { label: 'Attendance', path: '/tenant/attendance', icon: <FiClock /> },
+    { label: 'Attendance Tracker', path: '/tenant/tracker', icon: <FiCalendar /> },
+    { label: 'Analytics', path: '/tenant/analytics', icon: <FiTrendingUp /> },
     { label: 'Payroll', path: '/tenant/payroll', icon: <FiDollarSign /> },
     { label: 'Cash Advances', path: '/tenant/cash-advances', icon: <FiCreditCard /> },
   ]},
@@ -31,6 +33,7 @@ const ADMIN_NAV = [
 const STAFF_NAV = [
   { section: 'Main', items: [
     { label: 'Attendance', path: '/tenant/attendance', icon: <FiClock /> },
+    { label: 'Attendance Tracker', path: '/tenant/tracker', icon: <FiCalendar /> },
   ]},
 ];
 

@@ -16,7 +16,7 @@ const Modal = ({ show, onClose, title, children, footer, size = 'md' }) => {
 
   if (!show) return null;
 
-  const maxW = size === 'lg' ? 680 : size === 'xl' ? 860 : 520;
+  const maxW = size === 'sm' ? 320 : size === 'lg' ? 680 : size === 'xl' ? 860 : 520;
 
   return createPortal(
     <div

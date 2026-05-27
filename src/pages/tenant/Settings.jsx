@@ -250,12 +250,15 @@ const Settings = () => {
                     border: '1px solid var(--border-light)', 
                     borderRadius: 12, 
                     background: '#f8fafc', 
-                    padding: 20, 
+                    padding: '24px 20px', 
                     height: '450px', 
-                    overflow: 'hidden',
-                    position: 'relative'
+                    overflowY: 'auto',
+                    position: 'relative',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center'
                   }}>
-                    <div style={{ transform: 'scale(0.6)', transformOrigin: 'top center' }}>
+                    <div style={{ width: '160px' }}>
                       <PayrollReceipt 
                         isPreview={true}
                         config={{

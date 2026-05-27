@@ -37,78 +37,281 @@ const PayrollReceipt = ({ config, payroll, employee, onClose, isPreview = false 
     netPay: employee.netPay,
   };
 
+  const formatPeriod = (start, end) => {
+    try {
+      const s = new Date(start);
+      const e = new Date(end);
+      if (isNaN(s.getTime()) || isNaN(e.getTime())) return `${start} - ${end}`;
+      return `${format(s, 'MM/dd/yy')} - ${format(e, 'MM/dd/yy')}`;
+    } catch {
+      return `${start} - ${end}`;
+    }
+  };
+
   const receiptHeader = config?.header || data.companyName;
   const receiptSubheader = config?.subheader || 'Payroll Receipt';
   const receiptFooter = config?.footer || 'This is a computer-generated payroll receipt and does not require a physical signature.';
 
   const renderedHtml = `
-    <div style="font-family: 'Inter', sans-serif; padding: 32px; border: 1px solid #e2e8f0; max-width: 600px; margin: auto; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-      <div style="text-align: center; border-bottom: 2px solid #3b82f6; padding-bottom: 16px; margin-bottom: 24px;">
-        <h1 style="margin: 0; color: #1e293b; font-size: 24px;">${receiptHeader}</h1>
-        <p style="margin: 4px 0 0; color: #64748b; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">${receiptSubheader}</p>
+    <div class="receipt-ticket">
+      <div class="receipt-header">
+        <h1 class="company-name">${receiptHeader}</h1>
+        <p class="document-title">${receiptSubheader}</p>
       </div>
       
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
-        <div>
-          <label style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 600;">Employee</label>
-          <div style="font-size: 16px; font-weight: 700; color: #1e293b;">${data.employeeName}</div>
-          <div style="font-size: 13px; color: #64748b;">${data.role || 'Worker'}</div>
+      <div class="divider"></div>
+      
+      <div class="receipt-meta">
+        <div class="meta-row">
+          <span class="meta-label">Employee:</span>
+          <span class="meta-value">${data.employeeName}</span>
         </div>
-        <div style="text-align: right;">
-          <label style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 600;">Payroll Period</label>
-          <div style="font-size: 14px; font-weight: 600; color: #1e293b;">${data.periodStart} - ${data.periodEnd}</div>
+        <div class="meta-row">
+          <span class="meta-label">Role:</span>
+          <span class="meta-value">${data.role || 'Worker'}</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-label">Period:</span>
+          <span class="meta-value">${formatPeriod(data.periodStart, data.periodEnd)}</span>
         </div>
       </div>
       
-      <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
-        <h3 style="margin: 0 0 12px 0; font-size: 14px; color: #334155; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">Earnings Breakdown</h3>
-        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+      <div class="divider"></div>
+      
+      <div class="section-title">Earnings Breakdown</div>
+      <table class="receipt-table">
+        <tbody>
           <tr>
-            <td style="padding: 6px 0; color: #64748b;">Regular Pay (${data.daysPresent}${data.daysHalf > 0 ? `+${data.daysHalf}½` : ''} days)</td>
-            <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #1e293b;">${fmt(data.regularPay)}</td>
+            <td>Regular Pay (${data.daysPresent}${data.daysHalf > 0 ? `+${data.daysHalf}½` : ''}d)</td>
+            <td class="amount">${fmt(data.regularPay)}</td>
           </tr>
           <tr>
-            <td style="padding: 6px 0; color: #64748b;">Overtime Pay (${data.totalOT} hrs)</td>
-            <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #1e293b;">${fmt(data.otPay)}</td>
+            <td>Overtime Pay (${data.totalOT} hrs)</td>
+            <td class="amount">${fmt(data.otPay)}</td>
           </tr>
-          <tr style="border-top: 1px solid #e2e8f0;">
-            <td style="padding: 12px 0 0 0; font-weight: 700; color: #1e293b;">Gross Earnings</td>
-            <td style="padding: 12px 0 0 0; text-align: right; font-weight: 700; color: #1e293b; font-size: 16px;">${fmt(data.grossPay)}</td>
+          <tr class="total-row">
+            <td>Gross Earnings</td>
+            <td class="amount">${fmt(data.grossPay)}</td>
           </tr>
-        </table>
-      </div>
+        </tbody>
+      </table>
       
-      <div style="background: #fff1f2; padding: 20px; border-radius: 8px; margin-bottom: 24px; border: 1px solid #ffe4e6;">
-        <h3 style="margin: 0 0 12px 0; font-size: 14px; color: #991b1b; border-bottom: 1px solid #fecaca; padding-bottom: 8px;">Deductions</h3>
-        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+      <div class="divider"></div>
+      
+      <div class="section-title">Deductions</div>
+      <table class="receipt-table">
+        <tbody>
           <tr>
-            <td style="padding: 6px 0; color: #991b1b;">Cash Advance Deductions</td>
-            <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #991b1b;">-${fmt(data.caDeduction)}</td>
+            <td class="deduction-label">Cash Advance</td>
+            <td class="amount deduction-amount">-${fmt(data.caDeduction)}</td>
           </tr>
-        </table>
+        </tbody>
+      </table>
+      
+      <div class="divider"></div>
+      
+      <div class="net-pay-section">
+        <div class="net-pay-label">Total Net Payout</div>
+        <div class="net-pay-value">${fmt(data.netPay)}</div>
       </div>
       
-      <div style="border-top: 2px dashed #e2e8f0; padding-top: 20px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <div style="font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Net Payout</div>
-          <div style="font-size: 28px; font-weight: 800; color: #16a34a;">${fmt(data.netPay)}</div>
-        </div>
-        <div style="text-align: right; font-size: 11px; color: #94a3b8;">
-          <div>Generated on</div>
-          <div style="font-weight: 600;">${dateGenerated}</div>
-        </div>
-      </div>
+      <div class="divider"></div>
       
-      <div style="margin-top: 32px; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 16px;">
-        <p style="font-size: 11px; color: #94a3b8; margin: 0;">${receiptFooter}</p>
-        <p style="font-size: 11px; color: #94a3b8; margin: 4px 0 0;">Thank you for your hard work!</p>
+      <div class="receipt-footer">
+        <p>${receiptFooter}</p>
+        <p class="timestamp">Generated on ${dateGenerated}</p>
+        <p class="thank-you">Thank you for your hard work!</p>
       </div>
     </div>
   `;
 
+  // Standard style bundle used both in live web preview and the printed window.
+  const styleStyles = `
+    .receipt-ticket {
+      width: 160px;
+      margin: 0;
+      padding: 10px 2px;
+      background: #ffffff;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 9px;
+      line-height: 1.3;
+      color: #000000;
+      box-sizing: border-box;
+      text-align: left;
+      word-wrap: break-word;
+      word-break: break-word;
+    }
+    
+    .receipt-header {
+      text-align: center;
+      margin-bottom: 6px;
+    }
+    
+    .company-name {
+      margin: 0;
+      color: #000000;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      word-wrap: break-word;
+      word-break: break-word;
+      line-height: 1.2;
+    }
+    
+    .document-title {
+      margin: 2px 0 0;
+      color: #000000;
+      font-size: 8px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    
+    .divider {
+      border-top: 1px dashed #000000;
+      margin: 6px 0;
+      height: 0;
+    }
+    
+    .receipt-meta {
+      margin: 4px 0;
+    }
+    
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 2.5px;
+      gap: 6px;
+    }
+    
+    .meta-label {
+      font-weight: 600;
+      color: #000000;
+      flex-shrink: 0;
+    }
+    
+    .meta-value {
+      text-align: right;
+      word-wrap: break-word;
+      word-break: break-word;
+      color: #000000;
+    }
+    
+    .section-title {
+      font-size: 8px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #000000;
+      margin: 5px 0 2px;
+      letter-spacing: 0.3px;
+    }
+    
+    .receipt-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 3px;
+    }
+    
+    .receipt-table td {
+      padding: 1.5px 0;
+      font-size: 9px;
+      vertical-align: top;
+      color: #000000;
+    }
+    
+    .receipt-table .amount {
+      text-align: right;
+      font-weight: 600;
+      white-space: nowrap;
+      color: #000000;
+      padding-left: 6px;
+    }
+    
+    .receipt-table .total-row td {
+      font-weight: 700;
+      border-top: 1px dashed #000000;
+      padding-top: 3px;
+      margin-top: 1px;
+      color: #000000;
+    }
+    
+    .receipt-table .total-row .amount {
+      font-size: 9.5px;
+    }
+
+    .deduction-label {
+      color: #000000 !important;
+    }
+
+    .deduction-amount {
+      color: #000000 !important;
+    }
+    
+    .net-pay-section {
+      text-align: center;
+      padding: 3px 0;
+    }
+    
+    .net-pay-label {
+      font-size: 8px;
+      font-weight: 700;
+      color: #000000;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    
+    .net-pay-value {
+      font-size: 14px;
+      font-weight: 800;
+      color: #000000;
+      margin-top: 1px;
+    }
+    
+    .receipt-footer {
+      text-align: center;
+      font-size: 7.5px;
+      color: #000000;
+      margin-top: 6px;
+      word-wrap: break-word;
+      word-break: break-word;
+    }
+    
+    .receipt-footer p {
+      margin: 2px 0;
+      line-height: 1.25;
+    }
+    
+    .receipt-footer .timestamp {
+      font-style: italic;
+      margin-top: 4px;
+      color: #000000;
+    }
+    
+    .receipt-footer .thank-you {
+      font-weight: 700;
+      margin-top: 3px;
+      text-transform: uppercase;
+      color: #000000;
+    }
+  `;
+
   const handlePrint = () => {
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
+    let iframe = document.getElementById('receipt-print-iframe');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.id = 'receipt-print-iframe';
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = 'none';
+      document.body.appendChild(iframe);
+    }
+
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
       <html>
         <head>
           <title>Receipt - ${data.employeeName}</title>
@@ -116,10 +319,33 @@ const PayrollReceipt = ({ config, payroll, employee, onClose, isPreview = false 
           <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
           <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
           <style>
-            body { margin: 0; padding: 20px; background: white; }
+            html, body {
+              margin: 0;
+              padding: 0;
+              background: #ffffff;
+              width: 58mm;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            ${styleStyles}
+            
             @media print {
-              body { padding: 0; }
-              .no-print { display: none; }
+              @page {
+                size: 58mm auto;
+                margin: 0;
+              }
+              html, body {
+                width: 58mm !important;
+                margin: 0 !important;
+                padding: 0 !important;
+              }
+              .receipt-ticket {
+                width: 42mm !important;
+                max-width: 42mm !important;
+                margin: 0 !important;
+                padding: 2mm 0 2mm 1mm !important;
+                box-sizing: border-box !important;
+              }
             }
           </style>
         </head>
@@ -128,12 +354,13 @@ const PayrollReceipt = ({ config, payroll, employee, onClose, isPreview = false 
         </body>
       </html>
     `);
-    printWindow.document.close();
-    printWindow.focus();
+    doc.close();
+
+    // Give standard fonts/styling 250ms to mount inside the iframe, then trigger print
     setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 500);
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    }, 250);
   };
 
   return (
@@ -144,7 +371,10 @@ const PayrollReceipt = ({ config, payroll, employee, onClose, isPreview = false 
           <button className="btn btn-primary" onClick={handlePrint}><FiPrinter /> Print Receipt</button>
         </div>
       )}
-      <div className="receipt-preview" style={{ transform: isPreview ? 'scale(0.85)' : 'none', transformOrigin: 'top center' }} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+      
+      <div className="receipt-ticket-wrapper">
+        <div className="receipt-preview" style={{ transform: isPreview ? 'scale(0.95)' : 'none', transformOrigin: 'top center' }} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+      </div>
       
       <style dangerouslySetInnerHTML={{ __html: `
         .receipt-container {
@@ -152,15 +382,31 @@ const PayrollReceipt = ({ config, payroll, employee, onClose, isPreview = false 
           padding: ${isPreview ? '0' : '24px'};
           border-radius: 16px;
           border: ${isPreview ? 'none' : '1px solid var(--border-light)'};
+          display: flex;
+          flex-direction: column;
+          align-items: center;
         }
+        
+        .receipt-ticket-wrapper {
+          background: #ffffff;
+          box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+          border: 1px solid var(--border, #e2e8f0);
+          border-radius: 8px;
+          position: relative;
+          overflow: hidden;
+          margin: 10px auto;
+        }
+
+        ${styleStyles}
+
         @media print {
           .no-print { display: none !important; }
           .receipt-container { padding: 0; border: none; background: white; }
+          .receipt-ticket-wrapper { border: none; box-shadow: none; margin: 0; }
         }
       `}} />
     </div>
   );
 };
-
 
 export default PayrollReceipt;

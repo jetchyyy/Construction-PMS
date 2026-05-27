@@ -826,7 +826,7 @@ const PayrollManager = () => {
         show={showReceiptModal} 
         onClose={() => setShowReceiptModal(false)} 
         title="Payroll Receipt Preview"
-        size="lg"
+        size="sm"
       >
         {selectedForReceipt && (
           <PayrollReceipt 

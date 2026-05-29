@@ -19,6 +19,9 @@ const ProjectManager = () => {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ projectName: '', location: '' });
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [selectedProjectForWorkers, setSelectedProjectForWorkers] = useState(null);
+  const [projectWorkersList, setProjectWorkersList] = useState([]);
+  const [loadingWorkersList, setLoadingWorkersList] = useState(false);
 
   const fetchData = async () => {
     if (!companyId) return;
@@ -43,15 +46,19 @@ const ProjectManager = () => {
 
   useEffect(() => { fetchData(); }, [companyId]);
 
-  const openAdd = () => { setEditing(null); setForm({ projectName: '', location: '' }); setShowModal(true); };
-  const openEdit = (p) => { setEditing(p); setForm({ projectName: p.projectName, location: p.location }); setShowModal(true); };
+  const openAdd = () => { setEditing(null); setForm({ projectName: '', location: '', status: 'active' }); setShowModal(true); };
+  const openEdit = (p) => { setEditing(p); setForm({ projectName: p.projectName, location: p.location, status: p.status || 'active' }); setShowModal(true); };
 
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
       if (editing) {
-        await updateDoc(doc(db, 'projects', editing.id), { projectName: form.projectName, location: form.location });
+        await updateDoc(doc(db, 'projects', editing.id), { 
+          projectName: form.projectName, 
+          location: form.location,
+          status: form.status
+        });
         addToast('Project updated', 'success');
       } else {
         await addDoc(collection(db, 'projects'), {
@@ -78,6 +85,33 @@ const ProjectManager = () => {
       fetchData();
     } catch (err) {
       addToast('Error: ' + err.message, 'error');
+    }
+  };
+
+  const updateProjectStatus = async (p, newStatus) => {
+    try {
+      await updateDoc(doc(db, 'projects', p.id), { status: newStatus });
+      addToast(`Project "${p.projectName}" status is now ${newStatus}`, 'success');
+      fetchData();
+    } catch (err) {
+      addToast('Error updating status: ' + err.message, 'error');
+    }
+  };
+
+  const viewWorkers = async (project) => {
+    setSelectedProjectForWorkers(project);
+    setLoadingWorkersList(true);
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'employees'),
+        where('companyId', '==', companyId),
+        where('currentProjectId', '==', project.id)
+      ));
+      setProjectWorkersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      addToast('Failed to load workers: ' + err.message, 'error');
+    } finally {
+      setLoadingWorkersList(false);
     }
   };
 
@@ -119,10 +153,28 @@ const ProjectManager = () => {
                   </div>
                 </td>
                 <td>
-                  <span className="role-badge" style={{ background: 'var(--primary-light)', color: 'var(--primary)', borderColor: 'transparent' }}>
+                  <button 
+                    onClick={() => viewWorkers(p)}
+                    className="role-badge" 
+                    style={{ 
+                      background: 'var(--primary-light)', 
+                      color: 'var(--primary)', 
+                      borderColor: 'transparent', 
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      fontFamily: 'inherit',
+                      fontSize: '12px'
+                    }}
+                    title="Click to view assigned workers"
+                  >
                     <FiUsers size={14} />
                     <span>{workerCounts[p.id] || 0} active workers</span>
-                  </span>
+                  </button>
                 </td>
                 <td>
                   <span className={`status-badge ${p.status}`}>
@@ -130,7 +182,31 @@ const ProjectManager = () => {
                     {p.status}
                   </span>
                 </td>
-                <td className="actions">
+                <td className="actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <select
+                    className="btn btn-sm btn-secondary"
+                    value={p.status || 'active'}
+                    onChange={(e) => updateProjectStatus(p, e.target.value)}
+                    style={{ 
+                      cursor: 'pointer',
+                      paddingRight: '22px',
+                      textTransform: 'capitalize',
+                      backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 6px center',
+                      backgroundSize: '12px',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                      height: '30px',
+                      paddingTop: '2px',
+                      paddingBottom: '2px'
+                    }}
+                  >
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                    <option value="completed">Completed</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
                   <button className="btn btn-sm btn-ghost" onClick={() => openEdit(p)} title="Edit"><FiEdit2 /></button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setDeleteConfirm(p)} title="Delete" style={{ color: 'var(--danger)' }}><FiTrash2 /></button>
                 </td>
@@ -157,6 +233,17 @@ const ProjectManager = () => {
             <label>Location</label>
             <input className="form-input" value={form.location} onChange={e => setForm({...form, location: e.target.value})} required placeholder="e.g. Makati City" />
           </div>
+          {editing && (
+            <div className="form-group">
+              <label>Status</label>
+              <select className="form-input" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+                <option value="completed">Completed</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          )}
         </form>
       </Modal>
 
@@ -167,6 +254,59 @@ const ProjectManager = () => {
         </>
       }>
         <p>Delete <strong>{deleteConfirm?.projectName}</strong>? All workers assigned to this project will become unassigned. This cannot be undone.</p>
+      </Modal>
+
+      <Modal 
+        show={!!selectedProjectForWorkers} 
+        onClose={() => setSelectedProjectForWorkers(null)} 
+        title={`Assigned Workers: ${selectedProjectForWorkers?.projectName}`}
+        size="md"
+      >
+        {loadingWorkersList ? (
+          <div style={{ textAlign: 'center', padding: 32 }}>
+            <span className="spinner" />
+            <div style={{ marginTop: 8 }}>Loading workers...</div>
+          </div>
+        ) : projectWorkersList.length === 0 ? (
+          <EmptyState 
+            icon={<FiUsers />} 
+            title="No workers assigned" 
+            description="Assign workers to this project in the Workforce Directory." 
+          />
+        ) : (
+          <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+            <table className="data-table" style={{ fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th>Worker Name</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projectWorkersList.map((worker, idx) => (
+                  <tr key={worker.id}>
+                    <td>
+                      <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>
+                        {worker.fullName}
+                      </div>
+                    </td>
+                    <td>
+                      <span style={{ textTransform: 'capitalize', fontSize: 12 }}>
+                        {worker.role}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`status-badge ${worker.status}`}>
+                        {worker.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Modal>
     </div>
   );

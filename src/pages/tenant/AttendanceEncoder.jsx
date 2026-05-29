@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase/config';
-import { collection, query, where, getDocs, setDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, setDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../components/ui/ToastContext';
 import { format } from 'date-fns';
@@ -81,6 +81,16 @@ const AttendanceEncoder = () => {
               overtimeHours: data.overtimeHours || 0,
               remarks: data.remarks || ''
             };
+            // Auto-healing migration
+            if (!data.companyId || !data.employeeId || !data.projectId || !data.date) {
+              const docRef = doc(db, 'attendance', companyId, 'projects', projectId, 'dates', date, 'records', emp.id);
+              await updateDoc(docRef, {
+                companyId,
+                employeeId: emp.id,
+                projectId,
+                date
+              }).catch(e => console.error("Auto-healing error:", e));
+            }
           } else {
             initData[emp.id] = { status: 'present', timeIn: '08:00', timeOut: '17:00', hoursWorked: 8, overtimeHours: 0, remarks: '' };
           }
@@ -171,6 +181,10 @@ const AttendanceEncoder = () => {
         const att = attendanceData[emp.id];
         const docRef = doc(db, 'attendance', companyId, 'projects', projectId, 'dates', date, 'records', emp.id);
         return setDoc(docRef, {
+          companyId,
+          employeeId: emp.id,
+          projectId,
+          date,
           status: att.status,
           timeIn: att.timeIn || '',
           timeOut: att.timeOut || '',

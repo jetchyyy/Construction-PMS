@@ -281,8 +281,9 @@ a { text-decoration: none; color: var(--primary); }
 }
 .status-badge.active, .status-badge.present, .status-badge.paid { background: var(--success-light); color: var(--success); }
 .status-badge.suspended, .status-badge.absent { background: var(--danger-light); color: var(--danger); }
-.status-badge.half-day, .status-badge.draft { background: var(--warning-light); color: var(--warning); }
-.status-badge.pending { background: var(--info-light); color: var(--info); }
+.status-badge.half-day, .status-badge.draft, .status-badge.paused { background: var(--warning-light); color: var(--warning); }
+.status-badge.pending, .status-badge.completed { background: var(--info-light); color: var(--info); }
+.status-badge.inactive { background: var(--border-light); color: var(--text); }
 
 /* KPI Card */
 .kpi-card {

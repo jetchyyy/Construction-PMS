@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase/config';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, collectionGroup, updateDoc, doc } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../components/ui/ToastContext';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths, isSameDay, parseISO } from 'date-fns';
-import { FiCalendar, FiClock, FiPrinter, FiCheck, FiX, FiInfo, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiCalendar, FiClock, FiPrinter, FiCheck, FiX, FiInfo, FiChevronLeft, FiChevronRight, FiUser, FiArrowRight } from 'react-icons/fi';
 
 const AttendanceTracker = () => {
   const { companyId } = useAuth();
@@ -76,9 +76,20 @@ const AttendanceTracker = () => {
       
       if (!attSnap.empty) {
         setHasAttendance(true);
-        attSnap.docs.forEach(doc => {
-          records[doc.id] = doc.data();
-        });
+        for (const docSnap of attSnap.docs) {
+          const data = docSnap.data();
+          records[docSnap.id] = data;
+          
+          // Auto-healing migration
+          if (!data.companyId || !data.employeeId || !data.projectId || !data.date) {
+            await updateDoc(docSnap.ref, {
+              companyId,
+              employeeId: docSnap.id,
+              projectId,
+              date: dateStr
+            }).catch(e => console.error("Auto-healing error:", e));
+          }
+        }
       } else {
         setHasAttendance(false);
       }
@@ -107,6 +118,25 @@ const AttendanceTracker = () => {
 
   const handlePrevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
   const handleNextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
+
+  const activeMonthStr = format(currentMonth, 'yyyy-MM');
+  const monthLogs = React.useMemo(() => {
+    return employeeRecords.filter(r => r.date.startsWith(activeMonthStr));
+  }, [employeeRecords, activeMonthStr]);
+
+  const monthlyStats = React.useMemo(() => {
+    const stats = { present: 0, halfDay: 0, absent: 0, hours: 0, ot: 0 };
+    monthLogs.forEach(r => {
+      if (r.status === 'present') stats.present++;
+      else if (r.status === 'half-day') stats.halfDay++;
+      else if (r.status === 'absent') stats.absent++;
+      stats.hours += Number(r.hoursWorked || 0);
+      stats.ot += Number(r.overtimeHours || 0);
+    });
+    return stats;
+  }, [monthLogs]);
+
+  const selectedEmployee = allCompanyEmployees.find(e => e.id === selectedEmployeeId);
 
   // Organize workers by status
   const presentWorkers = [];
@@ -255,124 +285,267 @@ const AttendanceTracker = () => {
         </div>
       </div>
 
+      {/* Tab Navigation */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: 16, marginBottom: 24 }}>
+        <button 
+          onClick={() => setActiveTab('daily')} 
+          style={{
+            padding: '8px 16px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'daily' ? '2px solid var(--primary)' : '2px solid transparent',
+            color: activeTab === 'daily' ? 'var(--primary)' : 'var(--text)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
+        >
+          Daily Project Logs
+        </button>
+        <button 
+          onClick={() => setActiveTab('employee')} 
+          style={{
+            padding: '8px 16px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'employee' ? '2px solid var(--primary)' : '2px solid transparent',
+            color: activeTab === 'employee' ? 'var(--primary)' : 'var(--text)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
+        >
+          Employee Attendance Explorer
+        </button>
+      </div>
+
       <div className="form-row" style={{ gridTemplateColumns: '2fr 1fr', gap: 24, alignItems: 'start' }}>
         {/* Left Column: Logs dashboard */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {/* Controls Card */}
-          <div className="data-card" style={{ padding: 24 }}>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'end', justifyContent: 'space-between' }}>
-              <div className="form-group" style={{ marginBottom: 0, minWidth: 260 }}>
-                <label>Select Project Site</label>
-                <select className="form-input" value={projectId} onChange={e => setProjectId(e.target.value)} disabled={loadingProjects}>
-                  <option value="">{loadingProjects ? 'Loading projects...' : 'Select a project'}</option>
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.projectName} — {p.location}</option>)}
-                </select>
+          {activeTab === 'daily' ? (
+            <>
+              {/* Controls Card */}
+              <div className="data-card" style={{ padding: 24 }}>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'end', justifyContent: 'space-between' }}>
+                  <div className="form-group" style={{ marginBottom: 0, minWidth: 260 }}>
+                    <label>Select Project Site</label>
+                    <select className="form-input" value={projectId} onChange={e => setProjectId(e.target.value)} disabled={loadingProjects}>
+                      <option value="">{loadingProjects ? 'Loading projects...' : 'Select a project'}</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.projectName} — {p.location}</option>)}
+                    </select>
+                  </div>
+
+                  {hasAttendance && (
+                    <button className="btn btn-primary" onClick={handlePrintReceipt} disabled={loadingData}>
+                      <FiPrinter style={{ marginRight: 6 }} /> Print Daily Receipt
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {hasAttendance && (
-                <button className="btn btn-primary" onClick={handlePrintReceipt} disabled={loadingData}>
-                  <FiPrinter style={{ marginRight: 6 }} /> Print Daily Receipt
-                </button>
-              )}
-            </div>
-          </div>
+              {/* Status Display Card */}
+              {loadingData ? (
+                <div className="data-card" style={{ padding: 60, textAlign: 'center' }}>
+                  <span className="spinner spinner-lg" />
+                  <p style={{ color: 'var(--text)', marginTop: 12 }}>Loading attendance logs for {format(selectedDate, 'PP')}...</p>
+                </div>
+              ) : (
+                <>
+                  {!hasAttendance ? (
+                    <div className="data-card" style={{ padding: '40px 24px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 48, color: 'var(--warning)', marginBottom: 16 }}><FiInfo /></div>
+                      <h3 style={{ fontSize: 18, color: 'var(--text-heading)', fontWeight: 600 }}>No Logs Found</h3>
+                      <p style={{ color: 'var(--text)', fontSize: 14, maxWidth: 400, margin: '8px auto 0' }}>
+                        Attendance records for <strong>{format(selectedDate, 'MMMM dd, yyyy')}</strong> have not been encoded yet for this project.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                      {/* Summary Counters */}
+                      <div className="attendance-summary">
+                        <div className="summary-box present">
+                          <div>
+                            <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600, textTransform: 'uppercase' }}>Present Workers</div>
+                            <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-heading)' }}>{presentWorkers.length}</div>
+                          </div>
+                          <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--success-light)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                            <FiCheck />
+                          </div>
+                        </div>
+                        <div className="summary-box absent">
+                          <div>
+                            <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600, textTransform: 'uppercase' }}>Absent Workers</div>
+                            <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-heading)' }}>{absentWorkers.length}</div>
+                          </div>
+                          <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--danger-light)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                            <FiX />
+                          </div>
+                        </div>
+                      </div>
 
-          {/* Status Display Card */}
-          {loadingData ? (
-            <div className="data-card" style={{ padding: 60, textAlign: 'center' }}>
-              <span className="spinner spinner-lg" />
-              <p style={{ color: 'var(--text)', marginTop: 12 }}>Loading attendance logs for {format(selectedDate, 'PP')}...</p>
-            </div>
+                      {/* List of Present Workers */}
+                      <div className="data-card">
+                        <div className="data-card-header" style={{ borderBottom: '1px solid var(--border-light)' }}>
+                          <h3 style={{ color: 'var(--success)', fontWeight: 600 }}>Present Payout Logs</h3>
+                        </div>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Employee</th>
+                              <th>Role</th>
+                              <th>Time In</th>
+                              <th>Time Out</th>
+                              <th style={{ textAlign: 'right' }}>Reg Hours</th>
+                              <th style={{ textAlign: 'right' }}>OT Hours</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {presentWorkers.length === 0 ? (
+                              <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24, color: 'var(--text)' }}>No present workers recorded.</td></tr>
+                            ) : presentWorkers.map((w, idx) => (
+                              <tr key={w.id}>
+                                <td><span style={{ fontWeight: 600 }}>{w.fullName}</span></td>
+                                <td><span style={{ textTransform: 'capitalize' }}>{w.role}</span></td>
+                                <td>{w.attendance.timeIn || '—'}</td>
+                                <td>{w.attendance.timeOut || '—'}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>{w.attendance.hoursWorked || 0} hrs</td>
+                                <td style={{ textAlign: 'right', fontWeight: 600 }}>{w.attendance.overtimeHours || 0} hrs</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* List of Absent Workers */}
+                      <div className="data-card">
+                        <div className="data-card-header" style={{ borderBottom: '1px solid var(--border-light)' }}>
+                          <h3 style={{ color: 'var(--danger)', fontWeight: 600 }}>Absent Payout Logs (Receipt Reference)</h3>
+                        </div>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Employee</th>
+                              <th>Role</th>
+                              <th>Remarks / Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {absentWorkers.length === 0 ? (
+                              <tr><td colSpan="3" style={{ textAlign: 'center', padding: 24, color: 'var(--text)' }}>No absent workers recorded.</td></tr>
+                            ) : absentWorkers.map((w, idx) => (
+                              <tr key={w.id}>
+                                <td><span style={{ fontWeight: 600 }}>{w.fullName}</span></td>
+                                <td><span style={{ textTransform: 'capitalize' }}>{w.role}</span></td>
+                                <td style={{ color: 'var(--danger)' }}>{w.attendance.remarks || 'No remarks provided.'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           ) : (
             <>
-              {!hasAttendance ? (
+              {/* Employee Explorer Tab View */}
+              {/* Explorer Controls Card */}
+              <div className="data-card" style={{ padding: 24 }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label><FiUser style={{ marginRight: 6 }} />Select Employee</label>
+                  <select 
+                    className="form-input" 
+                    value={selectedEmployeeId} 
+                    onChange={e => setSelectedEmployeeId(e.target.value)}
+                  >
+                    <option value="">Select a worker to explore...</option>
+                    {allCompanyEmployees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.fullName} ({emp.role})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {loadingEmployeeLogs ? (
+                <div className="data-card" style={{ padding: 60, textAlign: 'center' }}>
+                  <span className="spinner spinner-lg" />
+                  <p style={{ color: 'var(--text)', marginTop: 12 }}>Loading work logs for employee...</p>
+                </div>
+              ) : !selectedEmployeeId ? (
                 <div className="data-card" style={{ padding: '40px 24px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 48, color: 'var(--warning)', marginBottom: 16 }}><FiInfo /></div>
-                  <h3 style={{ fontSize: 18, color: 'var(--text-heading)', fontWeight: 600 }}>No Logs Found</h3>
+                  <div style={{ fontSize: 48, color: 'var(--primary)', marginBottom: 16 }}><FiUser /></div>
+                  <h3 style={{ fontSize: 18, color: 'var(--text-heading)', fontWeight: 600 }}>No Worker Selected</h3>
                   <p style={{ color: 'var(--text)', fontSize: 14, maxWidth: 400, margin: '8px auto 0' }}>
-                    Attendance records for <strong>{format(selectedDate, 'MMMM dd, yyyy')}</strong> have not been encoded yet for this project.
+                    Select an employee above to analyze their attendance logs, work history, and active project assignments for <strong>{format(currentMonth, 'MMMM yyyy')}</strong>.
                   </p>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                  {/* Summary Counters */}
+                  {/* Explorer Summary Counters */}
                   <div className="attendance-summary">
-                    <div className="summary-box present">
-                      <div>
-                        <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600, textTransform: 'uppercase' }}>Present Workers</div>
-                        <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-heading)' }}>{presentWorkers.length}</div>
-                      </div>
-                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--success-light)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                        <FiCheck />
-                      </div>
+                    <div className="summary-box present" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '16px 20px', height: 'auto', gap: 4 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text)', fontWeight: 600, textTransform: 'uppercase' }}>Days Present</div>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--success)' }}>{monthlyStats.present}</div>
                     </div>
-                    <div className="summary-box absent">
-                      <div>
-                        <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 600, textTransform: 'uppercase' }}>Absent Workers</div>
-                        <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-heading)' }}>{absentWorkers.length}</div>
-                      </div>
-                      <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--danger-light)', color: 'var(--danger)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                        <FiX />
+                    <div className="summary-box half" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '16px 20px', height: 'auto', gap: 4 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text)', fontWeight: 600, textTransform: 'uppercase' }}>Half-Days</div>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--warning)' }}>{monthlyStats.halfDay}</div>
+                    </div>
+                    <div className="summary-box absent" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '16px 20px', height: 'auto', gap: 4 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text)', fontWeight: 600, textTransform: 'uppercase' }}>Days Absent</div>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--danger)' }}>{monthlyStats.absent}</div>
+                    </div>
+                    <div className="summary-box present" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '16px 20px', height: 'auto', gap: 4, background: 'var(--bg)', border: '1px solid var(--border-light)' }}>
+                      <div style={{ fontSize: 11, color: 'var(--text)', fontWeight: 600, textTransform: 'uppercase' }}>Total Hours</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-heading)' }}>
+                        {monthlyStats.hours} hrs <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--success)' }}>{monthlyStats.ot > 0 ? `(+${monthlyStats.ot}h OT)` : ''}</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* List of Present Workers */}
+                  {/* Monthly Attendance Details Table */}
                   <div className="data-card">
                     <div className="data-card-header" style={{ borderBottom: '1px solid var(--border-light)' }}>
-                      <h3 style={{ color: 'var(--success)', fontWeight: 600 }}>Present Payout Logs</h3>
+                      <h3 style={{ color: 'var(--text-heading)', fontWeight: 600 }}>Work Logs for {format(currentMonth, 'MMMM yyyy')}</h3>
+                      {selectedEmployee && <span className="status-badge active">{selectedEmployee.fullName}</span>}
                     </div>
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Employee</th>
-                          <th>Role</th>
+                          <th>Date</th>
+                          <th>Project Site</th>
+                          <th>Status</th>
                           <th>Time In</th>
                           <th>Time Out</th>
-                          <th style={{ textAlign: 'right' }}>Reg Hours</th>
-                          <th style={{ textAlign: 'right' }}>OT Hours</th>
+                          <th style={{ textAlign: 'right' }}>Hours</th>
+                          <th style={{ textAlign: 'right' }}>OT (Hrs)</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {presentWorkers.length === 0 ? (
-                          <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24, color: 'var(--text)' }}>No present workers recorded.</td></tr>
-                        ) : presentWorkers.map((w, idx) => (
-                          <tr key={w.id}>
-                            <td><span style={{ fontWeight: 600 }}>{w.fullName}</span></td>
-                            <td><span style={{ textTransform: 'capitalize' }}>{w.role}</span></td>
-                            <td>{w.attendance.timeIn || '—'}</td>
-                            <td>{w.attendance.timeOut || '—'}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 600 }}>{w.attendance.hoursWorked || 0} hrs</td>
-                            <td style={{ textAlign: 'right', fontWeight: 600 }}>{w.attendance.overtimeHours || 0} hrs</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* List of Absent Workers */}
-                  <div className="data-card">
-                    <div className="data-card-header" style={{ borderBottom: '1px solid var(--border-light)' }}>
-                      <h3 style={{ color: 'var(--danger)', fontWeight: 600 }}>Absent Payout Logs (Receipt Reference)</h3>
-                    </div>
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Employee</th>
-                          <th>Role</th>
-                          <th>Remarks / Reason</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {absentWorkers.length === 0 ? (
-                          <tr><td colSpan="3" style={{ textAlign: 'center', padding: 24, color: 'var(--text)' }}>No absent workers recorded.</td></tr>
-                        ) : absentWorkers.map((w, idx) => (
-                          <tr key={w.id}>
-                            <td><span style={{ fontWeight: 600 }}>{w.fullName}</span></td>
-                            <td><span style={{ textTransform: 'capitalize' }}>{w.role}</span></td>
-                            <td style={{ color: 'var(--danger)' }}>{w.attendance.remarks || 'No remarks provided.'}</td>
-                          </tr>
-                        ))}
+                        {monthLogs.length === 0 ? (
+                          <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: 'var(--text)' }}>No attendance logs found for this worker in {format(currentMonth, 'MMMM yyyy')}.</td></tr>
+                        ) : monthLogs.map((log) => {
+                          const proj = projects.find(p => p.id === log.projectId);
+                          return (
+                            <tr key={log.id}>
+                              <td style={{ fontWeight: 600 }}>{log.date}</td>
+                              <td>
+                                <div style={{ fontSize: 13, fontWeight: 500 }}>{proj?.projectName || 'Unknown Site'}</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-light)' }}>{proj?.location || ''}</div>
+                              </td>
+                              <td>
+                                <span className={`status-badge ${log.status === 'present' ? 'active' : log.status === 'half-day' ? 'draft' : 'inactive'}`} style={{ textTransform: 'capitalize' }}>
+                                  {log.status}
+                                </span>
+                              </td>
+                              <td>{log.timeIn || '—'}</td>
+                              <td>{log.timeOut || '—'}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{log.hoursWorked || 0} hrs</td>
+                              <td style={{ textAlign: 'right', fontWeight: 600 }}>{log.overtimeHours || 0} hrs</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -414,25 +587,50 @@ const AttendanceTracker = () => {
             {daysInMonth.map((day, idx) => {
               const isSelected = isSameDay(day, selectedDate);
               const isTodayDay = isSameDay(day, new Date());
+              const dateStr = format(day, 'yyyy-MM-dd');
+              
+              const record = activeTab === 'employee' && selectedEmployeeId
+                ? employeeRecords.find(r => r.date === dateStr)
+                : null;
+
+              let bg = 'transparent';
+              let textCol = 'var(--text-heading)';
+              
+              if (activeTab === 'employee' && selectedEmployeeId && record) {
+                if (record.status === 'present') {
+                  bg = 'var(--success-light)';
+                  textCol = 'var(--success)';
+                } else if (record.status === 'half-day') {
+                  bg = 'var(--warning-light)';
+                  textCol = 'var(--warning)';
+                } else if (record.status === 'absent') {
+                  bg = 'var(--danger-light)';
+                  textCol = 'var(--danger)';
+                }
+              } else {
+                bg = isSelected ? 'var(--primary)' : isTodayDay ? 'var(--primary-light)' : 'transparent';
+                textCol = isSelected ? '#fff' : isTodayDay ? 'var(--primary)' : 'var(--text-heading)';
+              }
+
               return (
                 <button
                   key={idx}
                   onClick={() => setSelectedDate(day)}
                   style={{
-                    border: 'none',
+                    border: isSelected ? '2px solid var(--primary)' : 'none',
                     borderRadius: 8,
                     height: 36,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontSize: 12,
-                    fontWeight: isSelected || isTodayDay ? 700 : 500,
+                    fontWeight: isSelected || isTodayDay || record ? 700 : 500,
                     cursor: 'pointer',
-                    background: isSelected ? 'var(--primary)' : isTodayDay ? 'var(--primary-light)' : 'transparent',
-                    color: isSelected ? '#white' : isTodayDay ? 'var(--primary)' : 'var(--text-heading)',
+                    background: bg,
+                    color: textCol,
                     transition: 'all 0.15s'
                   }}
-                  className={isSelected ? 'text-white' : ''}
+                  className={isSelected && !record ? 'text-white' : ''}
                 >
                   {format(day, 'd')}
                 </button>

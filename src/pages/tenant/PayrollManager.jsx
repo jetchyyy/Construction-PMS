@@ -22,6 +22,8 @@ const PayrollManager = () => {
   const [filterProjectId, setFilterProjectId] = useState('');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+  const [allPayrollLines, setAllPayrollLines] = useState([]);
 
   // Main Payroll list pagination state
   const [payrollsPage, setPayrollsPage] = useState(1);
@@ -58,14 +60,19 @@ const PayrollManager = () => {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [selectedForReceipt, setSelectedForReceipt] = useState(null);
 
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
+  const [savingEdits, setSavingEdits] = useState(false);
+  const [globalOtMultiplier, setGlobalOtMultiplier] = useState(1.25);
+
 
   const fetchData = async () => {
     if (!companyId) return;
     setLoading(true);
     try {
-      const [pSnap, prSnap] = await Promise.all([
+      const [pSnap, prSnap, detSnap] = await Promise.all([
         getDocs(query(collection(db, 'projects'), where('companyId', '==', companyId))),
         getDocs(query(collection(db, 'payrolls'), where('companyId', '==', companyId))),
+        getDocs(query(collection(db, 'payrollDetails'), where('companyId', '==', companyId))),
       ]);
       setProjects(pSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setPayrolls(prSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
@@ -73,10 +80,13 @@ const PayrollManager = () => {
         const db2 = b.createdAt?.toDate?.() || new Date(0);
         return db2 - da;
       }));
+      setAllPayrollLines(detSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      
       const compSnap = await getDoc(doc(db, 'companies', companyId));
       if (compSnap.exists()) {
         const data = compSnap.data();
         setCompanyName(data.name || '');
+        setGlobalOtMultiplier(data.settings?.otRateMultiplier || 1.25);
         setReceiptConfig({
           header: data.settings?.receiptHeader || '',
           subheader: data.settings?.receiptSubheader || '',
@@ -89,7 +99,6 @@ const PayrollManager = () => {
     } finally {
       setLoading(false);
     }
-
   };
 
   useEffect(() => { fetchData(); }, [companyId]);
@@ -288,15 +297,71 @@ const PayrollManager = () => {
 
   const viewDetails = async (payroll) => {
     setShowDetail(payroll);
+    setIsEditingDetails(false);
     setDetailsPage(1);
     setDetailLoading(true);
     try {
       const snap = await getDocs(query(collection(db, 'payrollDetails'), where('payrollId', '==', payroll.id)));
-      setDetailLines(snap.docs.map(d => d.data()));
+      setDetailLines(snap.docs.map(d => ({ docId: d.id, ...d.data() })));
     } catch (err) {
       addToast('Failed to load details', 'error');
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const handleDetailChange = (index, field, value) => {
+    const newLines = [...detailLines];
+    const line = newLines[index];
+    const valNum = Number(value) || 0;
+
+    if (field === 'totalHoursWorked') {
+      line.totalHoursWorked = valNum;
+      line.regularPay = valNum * (line.hourlyRate || 0);
+    } else if (field === 'totalOT') {
+      line.totalOT = valNum;
+      line.otPay = valNum * (line.hourlyRate || 0) * globalOtMultiplier;
+    } else if (field === 'caDeduction') {
+      const maxAllowed = Math.min(line.regularPay + line.otPay, line.caBalance || 0);
+      line.caDeduction = Math.max(0, Math.min(maxAllowed, valNum));
+    }
+
+    line.grossPay = line.regularPay + line.otPay;
+    line.caDeduction = Math.min(line.grossPay, line.caDeduction);
+    line.netPay = Math.max(0, line.grossPay - line.caDeduction);
+
+    setDetailLines(newLines);
+  };
+
+  const saveEditedDetails = async () => {
+    setSavingEdits(true);
+    try {
+      const totalGross = detailLines.reduce((s, l) => s + l.grossPay, 0);
+      const totalNet = detailLines.reduce((s, l) => s + l.netPay, 0);
+
+      // 1. Update parent payroll document
+      await updateDoc(doc(db, 'payrolls', showDetail.id), {
+        totalGross,
+        totalNet,
+        updatedAt: serverTimestamp(),
+      });
+
+      // 2. Update all details in Firestore
+      const batchPromises = detailLines.map(line => {
+        if (!line.docId) return Promise.resolve();
+        const { docId, ...dataToSave } = line;
+        return updateDoc(doc(db, 'payrollDetails', docId), dataToSave);
+      });
+      await Promise.all(batchPromises);
+
+      addToast('Payroll details updated successfully!', 'success');
+      setIsEditingDetails(false);
+      setShowDetail(prev => ({ ...prev, totalGross, totalNet }));
+      fetchData();
+    } catch (err) {
+      addToast('Error saving changes: ' + err.message, 'error');
+    } finally {
+      setSavingEdits(false);
     }
   };
 
@@ -353,9 +418,63 @@ const PayrollManager = () => {
       const matchProject = !filterProjectId || pr.projectId === filterProjectId;
       const matchStart = !filterStartDate || pr.periodStart >= filterStartDate;
       const matchEnd = !filterEndDate || pr.periodEnd <= filterEndDate;
-      return matchProject && matchStart && matchEnd;
+      
+      let matchMonth = true;
+      if (filterMonth) {
+        matchMonth = pr.periodStart.startsWith(filterMonth) || pr.periodEnd.startsWith(filterMonth);
+      }
+      return matchProject && matchStart && matchEnd && matchMonth;
     });
-  }, [payrolls, filterProjectId, filterStartDate, filterEndDate]);
+  }, [payrolls, filterProjectId, filterStartDate, filterEndDate, filterMonth]);
+
+  const monthlyRoster = useMemo(() => {
+    if (!filterMonth) return [];
+    
+    // 1. Find all payroll runs that fall in this month
+    const monthPayrolls = payrolls.filter(pr => {
+      return pr.periodStart.startsWith(filterMonth) || pr.periodEnd.startsWith(filterMonth);
+    });
+    
+    const payrollIds = new Set(monthPayrolls.map(pr => pr.id));
+    
+    // 2. Filter lines belonging to these payroll runs
+    const monthLines = allPayrollLines.filter(line => payrollIds.has(line.payrollId));
+    
+    // 3. Aggregate by employee
+    const agg = {};
+    monthLines.forEach(line => {
+      const empId = line.employeeId;
+      const prStatus = monthPayrolls.find(pr => pr.id === line.payrollId)?.status || 'draft';
+      
+      if (!agg[empId]) {
+        agg[empId] = {
+          employeeId: empId,
+          employeeName: line.employeeName,
+          role: line.role || 'worker',
+          cyclesCount: 0,
+          grossPay: 0,
+          caDeduction: 0,
+          netPay: 0,
+          totalHours: 0,
+          totalOT: 0,
+          status: prStatus
+        };
+      }
+      
+      agg[empId].cyclesCount++;
+      agg[empId].grossPay += Number(line.grossPay || 0);
+      agg[empId].caDeduction += Number(line.caDeduction || 0);
+      agg[empId].netPay += Number(line.netPay || 0);
+      agg[empId].totalHours += Number(line.totalHoursWorked || 0);
+      agg[empId].totalOT += Number(line.totalOT || 0);
+      
+      if (prStatus === 'paid') {
+        agg[empId].status = 'paid';
+      }
+    });
+    
+    return Object.values(agg).sort((a,b) => a.employeeName.localeCompare(b.employeeName));
+  }, [allPayrollLines, payrolls, filterMonth]);
 
   const totalPayrollsPages = Math.ceil(filteredPayrolls.length / payrollsPerPage);
   const paginatedPayrolls = useMemo(() => {
@@ -383,6 +502,7 @@ const PayrollManager = () => {
     setFilterProjectId('');
     setFilterStartDate('');
     setFilterEndDate('');
+    setFilterMonth('');
   };
 
   return (
@@ -428,6 +548,15 @@ const PayrollManager = () => {
           </select>
         </div>
         <div className="filter-item">
+          <label>Filter by Month</label>
+          <input 
+            type="month" 
+            className="form-input" 
+            value={filterMonth} 
+            onChange={e => setFilterMonth(e.target.value)} 
+          />
+        </div>
+        <div className="filter-item">
           <label>Start Date</label>
           <input 
             type="date" 
@@ -446,7 +575,7 @@ const PayrollManager = () => {
           />
         </div>
         <div className="filter-actions">
-          {(filterProjectId || filterStartDate || filterEndDate) && (
+          {(filterProjectId || filterStartDate || filterEndDate || filterMonth) && (
             <button className="btn btn-secondary" onClick={clearFilters}>
               <FiXCircle /> Clear
             </button>
@@ -534,6 +663,71 @@ const PayrollManager = () => {
           </div>
         )}
       </div>
+
+      {filterMonth && (
+        <div className="data-card animate-in" style={{ marginTop: 24 }}>
+          <div className="data-card-header" style={{ borderBottom: '1px solid var(--border-light)' }}>
+            <div>
+              <h3 style={{ color: 'var(--primary)', fontWeight: 600 }}>Monthly Paid Roster</h3>
+              <p style={{ color: 'var(--text)', fontSize: 12, marginTop: 4 }}>
+                Consolidated payouts and worker rosters for the month of <strong>{new Date(filterMonth + '-02').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong>
+              </p>
+            </div>
+            <span className="status-badge active">{monthlyRoster.length} workers paid</span>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Role</th>
+                <th style={{ textAlign: 'center' }}>Cycles Included</th>
+                <th>Total Hours</th>
+                <th>Aggregated Gross</th>
+                <th>Aggregated Deductions</th>
+                <th style={{ textAlign: 'right' }}>Consolidated Net Pay</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthlyRoster.length === 0 ? (
+                <tr>
+                  <td colSpan="8" style={{ textAlign: 'center', padding: 40, color: 'var(--text)' }}>
+                    No payroll details found for this month.
+                  </td>
+                </tr>
+              ) : (
+                monthlyRoster.map((r, idx) => (
+                  <tr key={r.employeeId}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div className={`avatar btn-sm ${['indigo', 'emerald', 'rose', 'amber', 'cyan'][idx % 5]}`}>
+                          {getInitials(r.employeeName)}
+                        </div>
+                        <span style={{ fontWeight: 600 }}>{r.employeeName}</span>
+                      </div>
+                    </td>
+                    <td><span className="role-badge" style={{ textTransform: 'capitalize' }}>{r.role}</span></td>
+                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{r.cyclesCount} run(s)</td>
+                    <td>{r.totalHours} hrs {r.totalOT > 0 && <span style={{ color: 'var(--success)', fontSize: 11 }}>(+{r.totalOT}h OT)</span>}</td>
+                    <td style={{ fontWeight: 500 }}>{fmt(r.grossPay)}</td>
+                    <td style={{ color: r.caDeduction > 0 ? 'var(--danger)' : 'var(--text)', fontWeight: 500 }}>
+                      {r.caDeduction > 0 ? `-${fmt(r.caDeduction)}` : '—'}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--success)', fontSize: 14 }}>
+                      {fmt(r.netPay)}
+                    </td>
+                    <td>
+                      <span className={`status-badge ${r.status === 'paid' ? 'paid' : 'draft'}`}>
+                        {r.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <Modal show={showWizard} onClose={() => setShowWizard(false)} title="Generate Payroll" size="lg" footer={
         step === 1 ? <>
@@ -721,7 +915,31 @@ const PayrollManager = () => {
         )}
       </Modal>
 
-      <Modal show={!!showDetail} onClose={() => setShowDetail(null)} title={`Payroll Summary: ${showDetail?.periodStart} to ${showDetail?.periodEnd}`} size="lg">
+      <Modal 
+        show={!!showDetail} 
+        onClose={() => setShowDetail(null)} 
+        title={`Payroll Summary: ${showDetail?.periodStart} to ${showDetail?.periodEnd}`} 
+        size="lg"
+        footer={
+          showDetail?.status === 'draft' ? (
+            isEditingDetails ? (
+              <>
+                <button className="btn btn-secondary" onClick={() => { setIsEditingDetails(false); viewDetails(showDetail); }} disabled={savingEdits}>Cancel</button>
+                <button className="btn btn-primary" onClick={saveEditedDetails} disabled={savingEdits}>
+                  {savingEdits ? 'Saving...' : 'Save Changes'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="btn btn-secondary" onClick={() => setShowDetail(null)}>Close</button>
+                <button className="btn btn-primary" onClick={() => setIsEditingDetails(true)}>Edit Details</button>
+              </>
+            )
+          ) : (
+            <button className="btn btn-secondary" onClick={() => setShowDetail(null)}>Close</button>
+          )
+        }
+      >
         {detailLoading ? <div style={{ textAlign: 'center', padding: 60 }}><span className="spinner spinner-lg" /></div> : (
           <div>
             <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
@@ -739,32 +957,101 @@ const PayrollManager = () => {
                 <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}><tr><th>Employee</th><th>Attendance</th><th>OT</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th className="no-print">Actions</th></tr></thead>
                 <tbody>
                   {paginatedDetailLines.length === 0 ? (
-                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: 32 }}>No details available</td></tr>
+                    <tr><td colSpan="7" style={{ textAlign: 'center', padding: 32 }}>No details available</td></tr>
                   ) : paginatedDetailLines.map((l, i) => (
                     <tr key={i}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div className={`avatar btn-sm ${['indigo', 'emerald', 'rose', 'amber', 'cyan'][i % 5]}`}>{getInitials(l.employeeName)}</div>
-                          <span style={{ fontWeight: 600 }}>{l.employeeName}</span>
+                          <div>
+                            <span style={{ fontWeight: 600, display: 'block' }}>{l.employeeName}</span>
+                            <span style={{ fontSize: 10, color: 'var(--text-light)', textTransform: 'capitalize' }}>{l.role}</span>
+                          </div>
                         </div>
                       </td>
-                      <td>{l.daysPresent}{l.daysHalf > 0 && `+${l.daysHalf}½`} <span style={{ opacity: 0.5 }}>days</span> <span style={{ display: 'block', fontSize: 10, color: 'var(--text)', marginTop: 2 }}>({l.totalHoursWorked || 0} hrs)</span></td>
-                      <td>{l.totalOT} <span style={{ opacity: 0.5 }}>hrs</span></td>
-                      <td>{fmt(l.grossPay)}</td>
-                      <td style={{ color: 'var(--danger)', fontWeight: 500 }}>{l.caDeduction > 0 ? `-${fmt(l.caDeduction)}` : '—'}</td>
-                      <td style={{ fontWeight: 700, color: showDetail?.status === 'paid' ? 'var(--success)' : 'var(--text-heading)', fontSize: 14 }}>{fmt(l.netPay)}</td>
-                      <td className="no-print">
-                        <button 
-                          className="btn btn-sm btn-ghost" 
-                          style={{ color: 'var(--primary)' }}
-                          onClick={() => {
-                            setSelectedForReceipt({ ...l, companyName });
-                            setShowReceiptModal(true);
-                          }}
-                        >
-                          <FiPrinter /> Receipt
-                        </button>
-                      </td>
+                      {isEditingDetails ? (
+                        <>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <input 
+                                type="number" 
+                                className="form-input" 
+                                style={{ width: '80px', padding: '4px 8px', fontSize: 12, height: 'auto' }}
+                                value={l.totalHoursWorked || 0} 
+                                min="0"
+                                step="any"
+                                onChange={e => handleDetailChange((detailsPage - 1) * detailsPerPage + i, 'totalHoursWorked', e.target.value)} 
+                              />
+                              <span style={{ fontSize: 11, color: 'var(--text-light)' }}>hrs</span>
+                            </div>
+                            <div style={{ fontSize: 10, color: 'var(--text-light)', marginTop: 2 }}>Original: {l.daysPresent}d{l.daysHalf > 0 && `+${l.daysHalf}½d`}</div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <input 
+                                type="number" 
+                                className="form-input" 
+                                style={{ width: '70px', padding: '4px 8px', fontSize: 12, height: 'auto' }}
+                                value={l.totalOT || 0} 
+                                min="0"
+                                step="any"
+                                onChange={e => handleDetailChange((detailsPage - 1) * detailsPerPage + i, 'totalOT', e.target.value)} 
+                              />
+                              <span style={{ fontSize: 11, color: 'var(--text-light)' }}>hrs</span>
+                            </div>
+                          </td>
+                          <td>{fmt(l.grossPay)}</td>
+                          <td>
+                            {l.caBalance > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ color: 'var(--danger)', fontWeight: 500 }}>-</span>
+                                  <input 
+                                    type="number" 
+                                    className="form-input" 
+                                    style={{ width: '85px', padding: '4px 8px', fontSize: 12, height: 'auto', textAlign: 'right' }}
+                                    value={l.caDeduction === 0 ? '' : l.caDeduction} 
+                                    min="0"
+                                    max={Math.min(l.grossPay, l.caBalance)}
+                                    step="any"
+                                    placeholder="0.00"
+                                    onChange={e => handleDetailChange((detailsPage - 1) * detailsPerPage + i, 'caDeduction', e.target.value)} 
+                                  />
+                                </div>
+                                <span style={{ fontSize: 10, color: 'var(--text-light)', textAlign: 'right' }}>
+                                  Bal: {fmt(l.caBalance)}
+                                </span>
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--text-light)', opacity: 0.5 }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ fontWeight: 700, color: 'var(--success)', fontSize: 14 }}>{fmt(l.netPay)}</td>
+                          <td className="no-print">
+                            <span style={{ color: 'var(--text-light)', opacity: 0.5 }}>—</span>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td>{l.daysPresent}{l.daysHalf > 0 && `+${l.daysHalf}½`} <span style={{ opacity: 0.5 }}>days</span> <span style={{ display: 'block', fontSize: 10, color: 'var(--text)', marginTop: 2 }}>({l.totalHoursWorked || 0} hrs)</span></td>
+                          <td>{l.totalOT} <span style={{ opacity: 0.5 }}>hrs</span></td>
+                          <td>{fmt(l.grossPay)}</td>
+                          <td style={{ color: 'var(--danger)', fontWeight: 500 }}>{l.caDeduction > 0 ? `-${fmt(l.caDeduction)}` : '—'}</td>
+                          <td style={{ fontWeight: 700, color: showDetail?.status === 'paid' ? 'var(--success)' : 'var(--text-heading)', fontSize: 14 }}>{fmt(l.netPay)}</td>
+                          <td className="no-print">
+                            <button 
+                              className="btn btn-sm btn-ghost" 
+                              style={{ color: 'var(--primary)' }}
+                              onClick={() => {
+                                setSelectedForReceipt({ ...l, companyName });
+                                setShowReceiptModal(true);
+                              }}
+                            >
+                              <FiPrinter /> Receipt
+                            </button>
+                          </td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>

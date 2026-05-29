@@ -9,6 +9,8 @@ import { SkeletonTable } from '../../components/ui/SkeletonLoader';
 import { FiPlus, FiCreditCard, FiTrash2, FiTrendingUp, FiActivity, FiCheckCircle } from 'react-icons/fi';
 import { format } from 'date-fns';
 
+const capitalizeWords = (str) => (str || '').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
 const CashAdvanceManager = () => {
   const { companyId } = useAuth();
   const { addToast } = useToast();
@@ -17,8 +19,16 @@ const CashAdvanceManager = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ employeeId: '', amount: '', reason: '', deductionPerPayroll: '' });
+  const [form, setForm] = useState({ employeeId: '', amount: '', category: 'emergency', reason: '', deductionPerPayroll: '' });
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+
+  const availableCategories = React.useMemo(() => {
+    const defaults = ['emergency', 'medical', 'personal', 'salary loan', 'equipment'];
+    const existing = advances.map(a => (a.category || a.reason)?.toLowerCase()?.trim()).filter(Boolean);
+    const all = Array.from(new Set([...defaults, ...existing]));
+    return all.sort();
+  }, [advances]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -56,6 +66,7 @@ const CashAdvanceManager = () => {
       const amount = Number(form.amount);
       const deductionPerPayroll = Number(form.deductionPerPayroll) || 0;
       const empName = getEmpName(form.employeeId);
+      const categoryVal = (form.category || '').trim().toLowerCase();
       await addDoc(collection(db, 'cashAdvances'), {
         companyId,
         employeeId: form.employeeId,
@@ -63,14 +74,16 @@ const CashAdvanceManager = () => {
         amount,
         remainingBalance: amount,
         deductionPerPayroll,
-        reason: form.reason,
+        category: categoryVal,
+        reason: (form.reason || '').trim(), // reason is optional comments
         status: 'active',
         date: format(new Date(), 'yyyy-MM-dd'),
         createdAt: serverTimestamp(),
       });
       addToast(`Cash advance of ₱${amount.toLocaleString()} created for ${empName}`, 'success');
       setShowModal(false);
-      setForm({ employeeId: '', amount: '', reason: '', deductionPerPayroll: '' });
+      setIsCustomCategory(false);
+      setForm({ employeeId: '', amount: '', category: 'emergency', reason: '', deductionPerPayroll: '' });
       fetchData();
     } catch (err) {
       addToast('Error: ' + err.message, 'error');
@@ -113,7 +126,7 @@ const CashAdvanceManager = () => {
           <p style={{ color: 'var(--text)', fontSize: 13, marginTop: 4 }}>Manage and track employee financial assistance</p>
         </div>
         <div className="page-actions">
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}><FiPlus /> New Advance</button>
+          <button className="btn btn-primary" onClick={() => { setIsCustomCategory(false); setForm({ employeeId: '', amount: '', category: 'emergency', reason: '', deductionPerPayroll: '' }); setShowModal(true); }}><FiPlus /> New Advance</button>
         </div>
       </div>
 
@@ -140,7 +153,7 @@ const CashAdvanceManager = () => {
           <h3>Advance Records</h3>
         </div>
         <table className="data-table">
-          <thead><tr><th>Employee</th><th>Date / Reason</th><th>Original Amount</th><th>Deduction Progress</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Employee</th><th>Date / Category</th><th>Original Amount</th><th>Deduction Progress</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {loading ? <SkeletonTable cols={6} rows={4} /> : paginatedAdvances.length === 0 ? (
               <tr><td colSpan="6"><EmptyState icon={<FiCreditCard />} title="No cash advances" description="Create a new cash advance for an employee." /></td></tr>
@@ -156,7 +169,17 @@ const CashAdvanceManager = () => {
                   </td>
                   <td>
                     <div style={{ fontSize: 12, fontWeight: 500 }}>{ca.date}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ca.reason}>{ca.reason || 'No reason provided'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-heading)', fontWeight: 500, textTransform: 'capitalize' }}>
+                      {ca.category || 'No Category'}
+                    </div>
+                    {ca.reason && (
+                      <div 
+                        style={{ fontSize: 10, color: 'var(--text)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} 
+                        title={ca.reason}
+                      >
+                        {ca.reason}
+                      </div>
+                    )}
                   </td>
                   <td style={{ fontWeight: 500 }}>
                     <div>{fmt(ca.amount)}</div>
@@ -237,9 +260,9 @@ const CashAdvanceManager = () => {
         )}
       </div>
 
-      <Modal show={showModal} onClose={() => setShowModal(false)} title="New Cash Advance" footer={
+      <Modal show={showModal} onClose={() => { setShowModal(false); setIsCustomCategory(false); }} title="New Cash Advance" footer={
         <>
-          <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
+          <button className="btn btn-secondary" onClick={() => { setShowModal(false); setIsCustomCategory(false); }}>Cancel</button>
           <button className="btn btn-primary" form="caForm" type="submit" disabled={saving}>{saving ? 'Creating...' : 'Create Advance'}</button>
         </>
       }>
@@ -253,7 +276,7 @@ const CashAdvanceManager = () => {
           </div>
           <div className="form-group">
             <label>Amount (₱)</label>
-            <input type="number" className="form-input" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} required min="1" placeholder="0.00" />
+            <input type="number" className="form-input" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} required min="0.01" step="any" placeholder="0.00" />
             <span style={{ fontSize: 11, color: 'var(--text)', display: 'block', marginTop: 4 }}>This amount will be deducted from future payrolls.</span>
           </div>
           <div className="form-group">
@@ -262,8 +285,54 @@ const CashAdvanceManager = () => {
             <span style={{ fontSize: 11, color: 'var(--text)', display: 'block', marginTop: 4 }}>Specify a fixed deduction amount per payroll cycle. If empty, the full amount will be deducted in the next payroll.</span>
           </div>
           <div className="form-group">
-            <label>Reason / Remarks</label>
-            <input className="form-input" value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} placeholder="e.g. Emergency, Medical, etc." />
+            <label>Category</label>
+            {isCustomCategory ? (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input 
+                  className="form-input" 
+                  value={form.category} 
+                  onChange={e => setForm({...form, category: e.target.value})} 
+                  required 
+                  placeholder="Enter custom category (e.g. Travel)" 
+                />
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => {
+                    setIsCustomCategory(false);
+                    setForm({...form, category: 'emergency'});
+                  }}
+                  style={{ padding: '0 12px' }}
+                  title="Select from list"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <select 
+                className="form-input" 
+                value={form.category} 
+                onChange={e => {
+                  if (e.target.value === 'ADD_CUSTOM') {
+                    setIsCustomCategory(true);
+                    setForm({...form, category: ''});
+                  } else {
+                    setForm({...form, category: e.target.value});
+                  }
+                }}
+              >
+                {availableCategories.map(cat => (
+                  <option key={cat} value={cat} style={{ textTransform: 'capitalize' }}>
+                    {capitalizeWords(cat)}
+                  </option>
+                ))}
+                <option value="ADD_CUSTOM" style={{ color: 'var(--primary)', fontWeight: 600 }}>+ Add Custom Category...</option>
+              </select>
+            )}
+          </div>
+          <div className="form-group">
+            <label>Reason / Remarks (Optional)</label>
+            <input className="form-input" value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} placeholder="e.g. Medical emergency, School tuition, etc." />
           </div>
         </form>
       </Modal>

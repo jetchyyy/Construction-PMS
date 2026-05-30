@@ -10,6 +10,7 @@ const AttendanceTracker = () => {
   const { companyId } = useAuth();
   const { addToast } = useToast();
 
+  const [activeTab, setActiveTab] = useState('daily');
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -21,6 +22,12 @@ const AttendanceTracker = () => {
   const [employees, setEmployees] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState({});
   const [hasAttendance, setHasAttendance] = useState(false);
+
+  // Employee Explorer states
+  const [allCompanyEmployees, setAllCompanyEmployees] = useState([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [loadingEmployeeLogs, setLoadingEmployeeLogs] = useState(false);
+  const [employeeRecords, setEmployeeRecords] = useState([]);
 
   // Fetch projects
   useEffect(() => {
@@ -43,6 +50,58 @@ const AttendanceTracker = () => {
     };
     fetchProjects();
   }, [companyId]);
+
+  // Fetch all company employees
+  useEffect(() => {
+    if (!companyId) return;
+    const fetchAllEmployees = async () => {
+      try {
+        const snap = await getDocs(query(collection(db, 'employees'), where('companyId', '==', companyId)));
+        setAllCompanyEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (err) {
+        console.error("Error fetching all employees:", err);
+      }
+    };
+    fetchAllEmployees();
+  }, [companyId]);
+
+  // Fetch employee logs
+  useEffect(() => {
+    if (!companyId || !selectedEmployeeId) {
+      setEmployeeRecords([]);
+      return;
+    }
+    const fetchEmployeeLogs = async () => {
+      setLoadingEmployeeLogs(true);
+      try {
+        const q = query(
+          collectionGroup(db, 'records'),
+          where('companyId', '==', companyId),
+          where('employeeId', '==', selectedEmployeeId)
+        );
+        const recordsSnap = await getDocs(q);
+        const logs = recordsSnap.docs.map(docSnap => {
+          const data = docSnap.data();
+          const parts = docSnap.ref.path.split('/');
+          const projectId = data.projectId || parts[3];
+          const date = data.date || parts[5];
+          return {
+            id: docSnap.id,
+            ...data,
+            projectId,
+            date
+          };
+        });
+        setEmployeeRecords(logs);
+      } catch (err) {
+        console.error("Error fetching employee logs:", err);
+        addToast('Failed to load employee logs', 'error');
+      } finally {
+        setLoadingEmployeeLogs(false);
+      }
+    };
+    fetchEmployeeLogs();
+  }, [companyId, selectedEmployeeId]);
 
   // Fetch attendance records for selected project and selected date
   const fetchAttendanceForDate = async (targetDate) => {
